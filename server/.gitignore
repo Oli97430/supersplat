@@ -1,0 +1,12 @@
+# Job outputs and uploads — large, machine-specific, regenerated per run.
+jobs/
+
+# Local environment overrides
+.env
+.env.local
+
+# Python virtualenv
+venv/
+.venv/
+__pycache__/
+*.pyc

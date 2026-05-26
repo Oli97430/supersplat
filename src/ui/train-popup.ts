@@ -55,6 +55,35 @@ const autoFps = (durationSec: number): number => {
     return options.reduce((prev, cur) => Math.abs(cur - raw) < Math.abs(prev - raw) ? cur : prev);
 };
 
+// ── Capture preset definitions (mirror server-side CAPTURE_PRESETS) ──────────
+type Preset = { id: string; label: string; description: string; matcher: string; max_iters: number; extract_fps: number; };
+const PRESETS: Preset[] = [
+    { id: 'object',   label: 'OBJECT',   description: 'sculpture, product · sequential · 20k', matcher: 'sequential', max_iters: 20000, extract_fps: 3 },
+    { id: 'indoor',   label: 'INDOOR',   description: 'room, café, museum · sequential · 30k', matcher: 'sequential', max_iters: 30000, extract_fps: 2 },
+    { id: 'outdoor',  label: 'OUTDOOR',  description: 'building, monument · vocab_tree · 40k', matcher: 'vocab_tree', max_iters: 40000, extract_fps: 2 },
+    { id: 'portrait', label: 'PORTRAIT', description: 'person, full-body · sequential · 25k',  matcher: 'sequential', max_iters: 25000, extract_fps: 3 },
+    { id: 'preview',  label: 'PREVIEW',  description: 'quick 5k iters · fast check first',     matcher: 'sequential', max_iters: 5000,  extract_fps: 2 },
+    { id: 'custom',   label: 'CUSTOM',   description: 'manual control of every parameter',     matcher: 'sequential', max_iters: 30000, extract_fps: 2 },
+];
+
+// ── Cost estimator ───────────────────────────────────────────────────────────
+const estimateJob = (
+    files: File[],
+    videoMeta: { duration: number; sizeMB: number } | null,
+    fps: number,
+    iters: number
+): { frames: number; uploadMB: number; diskMB: number; trainMin: number } => {
+    const uploadMB = files.reduce((a, f) => a + f.size, 0) / 1024 / 1024;
+    const frames = videoMeta
+        ? Math.round(videoMeta.duration * fps)
+        : files.length;
+    // ~3 MB/frame raw + ~5 MB COLMAP + ~50 MB ckpt + ~80 MB PLY
+    const diskMB = Math.round(frames * 3 + 50 + 80 + uploadMB);
+    // ~0.4 s/iter on RTX 3090 + ~10 s/frame for COLMAP
+    const trainSec = (iters * 0.05) + (frames * 8);
+    return { frames, uploadMB: Math.round(uploadMB), diskMB, trainMin: Math.round(trainSec / 60) };
+};
+
 // ── Static HTML template — NO user-interpolation, parsed via DOMParser ───────
 const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle">
 
@@ -128,10 +157,20 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
             </div>
         </section>
 
+        <div class="tk-rule"><span>PRESET</span></div>
+
+        <section class="tk-section tk-section--preset">
+            <span class="tk-step">02</span>
+            <div class="tk-step-body">
+                <div class="tk-presets" data-tk-presets role="radiogroup" aria-label="Capture preset"></div>
+                <span class="tk-preset-hint" data-tk-preset-hint>manual control of every parameter</span>
+            </div>
+        </section>
+
         <div class="tk-rule"><span>PARAMETERS</span></div>
 
         <section class="tk-section tk-section--params">
-            <span class="tk-step">02</span>
+            <span class="tk-step">03</span>
             <div class="tk-step-body">
                 <div class="tk-param">
                     <label>COLMAP&middot;MATCHER</label>
@@ -167,6 +206,27 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
             </div>
         </section>
 
+        <div class="tk-rule"><span>ESTIMATE</span></div>
+
+        <section class="tk-estimate" data-tk-estimate>
+            <div class="tk-est-row">
+                <span class="tk-est-key">FRAMES</span>
+                <span class="tk-est-val" data-tk-est-frames>—</span>
+            </div>
+            <div class="tk-est-row">
+                <span class="tk-est-key">UPLOAD</span>
+                <span class="tk-est-val" data-tk-est-upload>—</span>
+            </div>
+            <div class="tk-est-row">
+                <span class="tk-est-key">DISK</span>
+                <span class="tk-est-val" data-tk-est-disk>—</span>
+            </div>
+            <div class="tk-est-row">
+                <span class="tk-est-key">TRAIN</span>
+                <span class="tk-est-val" data-tk-est-train>—</span>
+            </div>
+        </section>
+
         <div class="tk-rule"><span>PIPELINE</span></div>
 
         <section class="tk-pipeline">
@@ -188,6 +248,21 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                     <span class="tk-progress-pct" data-tk-pct>00.0%</span>
                     <span class="tk-progress-msg" data-tk-msg>standby &mdash; awaiting dispatch</span>
                     <span class="tk-progress-eta" data-tk-eta>t+ 00:00</span>
+                </div>
+
+                <div class="tk-metrics" hidden data-tk-metrics>
+                    <div class="tk-metric">
+                        <span class="tk-metric-k">GAUSSIANS</span>
+                        <span class="tk-metric-v" data-tk-met-count>—</span>
+                    </div>
+                    <div class="tk-metric">
+                        <span class="tk-metric-k">PLY SIZE</span>
+                        <span class="tk-metric-v" data-tk-met-size>—</span>
+                    </div>
+                    <div class="tk-metric">
+                        <span class="tk-metric-k">DURATION</span>
+                        <span class="tk-metric-v" data-tk-met-dur>—</span>
+                    </div>
                 </div>
             </div>
 
@@ -316,6 +391,16 @@ class TrainPopup extends Container {
         const qa = <T extends HTMLElement = HTMLElement>(s: string) => Array.from(consoleEl.querySelectorAll(s)) as T[];
 
         // ── DOM refs ────────────────────────────────────────────────
+        const presetsWrap     = q('[data-tk-presets]');
+        const presetHint      = q('[data-tk-preset-hint]');
+        const estFrames       = q('[data-tk-est-frames]');
+        const estUpload       = q('[data-tk-est-upload]');
+        const estDisk         = q('[data-tk-est-disk]');
+        const estTrain        = q('[data-tk-est-train]');
+        const metricsBox      = q('[data-tk-metrics]');
+        const metCount        = q('[data-tk-met-count]');
+        const metSize         = q('[data-tk-met-size]');
+        const metDur          = q('[data-tk-met-dur]');
         const offlineBox      = q('[data-tk-offline]');
         const urlInput        = q<HTMLInputElement>('[data-tk-url]');
         const retryBtn        = q<HTMLButtonElement>('[data-tk-retry]');
@@ -369,11 +454,13 @@ class TrainPopup extends Container {
         let pickedFiles: File[] = [];
         let currentMatcher = 'sequential';
         let currentFps = 2;
+        let currentPreset = 'custom';
         let startedAt = 0;
         let activeJob: string | null = null;
         let videoMeta: { duration: number; width: number; height: number; sizeMB: number } | null = null;
         let rawlogPollId: ReturnType<typeof setInterval> | null = null;
         let rawlogVisible = false;
+        let gpuLivePollId: ReturnType<typeof setInterval> | null = null;
 
         // ── UTC clock ───────────────────────────────────────────────
         const updateUTC = () => {
@@ -382,6 +469,98 @@ class TrainPopup extends Container {
         };
         updateUTC();
         const utcTimer = setInterval(updateUTC, 1000);
+
+        // ── Preset selector ─────────────────────────────────────────
+        const applyPreset = (id: string) => {
+            const p = PRESETS.find(x => x.id === id);
+            if (!p) return;
+            currentPreset = id;
+            presetHint.textContent = p.description;
+            presetsWrap.querySelectorAll('button').forEach((b) => {
+                b.classList.toggle('is-active', (b as HTMLButtonElement).dataset.v === id);
+            });
+            // Non-custom presets push their values into the controls
+            if (id !== 'custom') {
+                currentMatcher = p.matcher;
+                setSegment(matcherWrap, p.matcher);
+                matcherHint.textContent = MATCHER_HINTS[p.matcher] || '';
+                currentFps = p.extract_fps;
+                setSegment(fpsWrap, String(p.extract_fps));
+                itersSlider.value = String(p.max_iters);
+                syncSlider();
+            }
+            void refreshEstimate();
+        };
+
+        const buildPresets = () => {
+            presetsWrap.replaceChildren();
+            for (const p of PRESETS) {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.dataset.v = p.id;
+                b.className = p.id === currentPreset ? 'is-active' : '';
+                b.textContent = p.label;
+                b.addEventListener('click', () => applyPreset(p.id));
+                presetsWrap.appendChild(b);
+            }
+        };
+
+        // ── Estimator ───────────────────────────────────────────────
+        const refreshEstimate = async () => {
+            if (pickedFiles.length === 0) {
+                estFrames.textContent = '—';
+                estUpload.textContent = '—';
+                estDisk.textContent = '—';
+                estTrain.textContent = '—';
+                return;
+            }
+            const iters = +itersSlider.value;
+            const est = estimateJob(pickedFiles, videoMeta, currentFps, iters);
+            estFrames.textContent = String(est.frames);
+            estUpload.textContent = est.uploadMB < 1024 ? `${est.uploadMB} MB` : `${(est.uploadMB / 1024).toFixed(2)} GB`;
+            estDisk.textContent = est.diskMB < 1024 ? `${est.diskMB} MB` : `${(est.diskMB / 1024).toFixed(2)} GB`;
+            estTrain.textContent = est.trainMin < 60 ? `~${est.trainMin} min` : `~${(est.trainMin / 60).toFixed(1)} h`;
+        };
+
+        // ── GPU live VRAM polling ───────────────────────────────────
+        const pollGpuLive = async () => {
+            try {
+                const r = await fetch(`${getBackendUrl()}/gpu/live`, { signal: AbortSignal.timeout(2500) });
+                if (!r.ok) return;
+                const info = await r.json();
+                if (info.available && info.free_gb != null && info.total_gb) {
+                    gpuEl.textContent = `${info.free_gb}/${info.total_gb}G free · ${info.pct_used}% used`;
+                }
+            } catch { /* ignore */ }
+        };
+        const startGpuLivePoll = () => {
+            if (gpuLivePollId !== null) return;
+            void pollGpuLive();
+            gpuLivePollId = setInterval(pollGpuLive, 3000);
+        };
+        const stopGpuLivePoll = () => {
+            if (gpuLivePollId !== null) {
+                clearInterval(gpuLivePollId);
+                gpuLivePollId = null;
+            }
+        };
+
+        // ── Metrics display (done state) ────────────────────────────
+        const showMetrics = async (jobId: string) => {
+            try {
+                const r = await fetch(`${getBackendUrl()}/jobs/${jobId}/metrics`);
+                if (!r.ok) return;
+                const data = await r.json();
+                const m = data.metrics || {};
+                metCount.textContent = m.gaussian_count != null ? m.gaussian_count.toLocaleString() : '—';
+                metSize.textContent = m.file_size_mb != null ? `${m.file_size_mb} MB` : '—';
+                metDur.textContent = data.duration_sec != null
+                    ? `${Math.floor(data.duration_sec / 60)}m ${Math.round(data.duration_sec % 60)}s`
+                    : '—';
+                metricsBox.removeAttribute('hidden');
+            } catch { /* ignore */ }
+        };
+        const hideMetrics = () => metricsBox.setAttribute('hidden', '');
 
         // ── Backend connectivity ────────────────────────────────────
         const checkBackend = async (): Promise<boolean> => {
@@ -594,6 +773,7 @@ class TrainPopup extends Container {
             }
             startBtn.disabled = false;
             void refreshHints();
+            void refreshEstimate();
         };
 
         // ── Recent jobs ─────────────────────────────────────────────
@@ -622,6 +802,19 @@ class TrainPopup extends Container {
                 li.className = 'tk-recent-item';
                 li.dataset.tone = j.stage === 'failed' ? 'fail' : 'ok';
 
+                const thumb = document.createElement('span');
+                thumb.className = 'tk-recent-thumb';
+                if (j.has_thumbnail) {
+                    const img = document.createElement('img');
+                    img.src = `${getBackendUrl()}/jobs/${j.id}/thumbnail`;
+                    img.alt = '';
+                    img.loading = 'lazy';
+                    thumb.appendChild(img);
+                } else {
+                    thumb.textContent = j.upload_kind === 'video' ? '▶' : '▦';
+                    thumb.dataset.empty = '1';
+                }
+
                 const stamp = document.createElement('span'); stamp.className = 'tk-recent-stamp';
                 stamp.textContent = fmtAgo(j.created_at);
                 const id = document.createElement('span'); id.className = 'tk-recent-id';
@@ -629,7 +822,10 @@ class TrainPopup extends Container {
                 const name = document.createElement('span'); name.className = 'tk-recent-name';
                 name.textContent = j.name;
                 const meta = document.createElement('span'); meta.className = 'tk-recent-meta';
-                meta.textContent = `${j.upload_kind} · ${j.max_iters.toLocaleString()} iter`;
+                const metaBits = [j.upload_kind, `${j.max_iters.toLocaleString()} iter`];
+                if (j.metrics?.gaussian_count) metaBits.push(`${(j.metrics.gaussian_count / 1000).toFixed(0)}k gs`);
+                if (j.metrics?.file_size_mb) metaBits.push(`${j.metrics.file_size_mb} MB`);
+                meta.textContent = metaBits.join(' · ');
 
                 const loadBtn = document.createElement('button'); loadBtn.className = 'tk-recent-load'; loadBtn.type = 'button';
                 loadBtn.textContent = 'load →';
@@ -649,7 +845,7 @@ class TrainPopup extends Container {
                     await refreshRecent();
                 };
 
-                li.append(stamp, id, name, meta, loadBtn, dlBtn, delBtn);
+                li.append(thumb, stamp, id, name, meta, loadBtn, dlBtn, delBtn);
                 recentList.appendChild(li);
             });
         };
@@ -672,6 +868,7 @@ class TrainPopup extends Container {
             fd.append('matcher', currentMatcher);
             fd.append('max_iters', itersSlider.value);
             fd.append('extract_fps', String(currentFps));
+            fd.append('preset', currentPreset);
             const r = await fetch(`${getBackendUrl()}/jobs`, { method: 'POST', body: fd });
             if (!r.ok) throw new Error(`upload ${r.status}: ${await r.text()}`);
             const j = await r.json();
@@ -790,6 +987,8 @@ class TrainPopup extends Container {
                 currentMatcher = (b as HTMLButtonElement).dataset.v!;
                 setSegment(matcherWrap, currentMatcher);
                 matcherHint.textContent = MATCHER_HINTS[currentMatcher] || '';
+                if (currentPreset !== 'custom') applyPreset('custom');
+                void refreshEstimate();
             });
         });
 
@@ -798,7 +997,9 @@ class TrainPopup extends Container {
             b.addEventListener('click', () => {
                 currentFps = parseInt((b as HTMLButtonElement).dataset.v!, 10);
                 setSegment(fpsWrap, String(currentFps));
+                if (currentPreset !== 'custom') applyPreset('custom');
                 void refreshHints();
+                void refreshEstimate();
             });
         });
 
@@ -810,7 +1011,15 @@ class TrainPopup extends Container {
             itersOut.textContent = Number(itersSlider.value).toLocaleString();
         };
         syncSlider(); // initialise the gradient fill
-        itersSlider.addEventListener('input', syncSlider);
+        itersSlider.addEventListener('input', () => {
+            syncSlider();
+            // changing iters manually flips us back to "custom"
+            if (currentPreset !== 'custom') applyPreset('custom');
+            void refreshEstimate();
+        });
+
+        // Build the preset row now that all helpers exist.
+        buildPresets();
 
         // ── Reset / Detach logic ────────────────────────────────────
         const reset = () => {
@@ -836,6 +1045,10 @@ class TrainPopup extends Container {
             while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
             appendLog('SYS', 'console initialized', 'system');
             statusEl.textContent = 'READY';
+            hideMetrics();
+            currentPreset = 'custom';
+            applyPreset('custom');
+            void refreshEstimate();
         };
 
         const setStartLabel = (text: string) => {
@@ -869,7 +1082,10 @@ class TrainPopup extends Container {
 
             // Async init — don't block
             void checkBackend().then(online => {
-                if (online) void Promise.all([loadGpuInfo(), refreshRecent()]);
+                if (online) {
+                    void Promise.all([loadGpuInfo(), refreshRecent()]);
+                    startGpuLivePoll();
+                }
             });
 
             return new Promise<void>((resolve) => {
@@ -906,6 +1122,7 @@ class TrainPopup extends Container {
                         setState('done');
                         statusEl.textContent = 'DONE';
                         notify('OneClick SPLAT — training complete', `${id.slice(0, 8)} is ready to load`);
+                        void showMetrics(id);
                         appendLog('LOAD', 'loading PLY into editor…', 'ok');
                         const file = await fetchPlyAsFile(id);
                         await events.invoke('import', [{ filename: file.name, contents: file }]);
@@ -951,12 +1168,14 @@ class TrainPopup extends Container {
             if (activeJob) {
                 appendLog('SYS', 'detached — training continues in background', 'warn');
             }
+            stopGpuLivePoll();
             this.hidden = true;
         };
 
         this.destroy = () => {
             clearInterval(utcTimer);
             stopRawLogPoll();
+            stopGpuLivePoll();
             this.hide();
             super.destroy();
         };

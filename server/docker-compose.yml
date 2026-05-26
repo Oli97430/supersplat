@@ -1,0 +1,33 @@
+# OneClick SPLAT — Backend stack
+# Start:  docker compose up -d
+# Logs:   docker compose logs -f backend
+# Stop:   docker compose down
+
+services:
+  backend:
+    build: .
+    image: oneclick-splat-backend:latest
+    container_name: ocs-backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./jobs:/app/jobs
+    environment:
+      # Allowed origins for the editor (comma-separated)
+      OCS_CORS_ORIGINS: "${OCS_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
+      # Per-file upload limit in MB
+      OCS_MAX_UPLOAD_MB: "${OCS_MAX_UPLOAD_MB:-4096}"
+      # Optional bearer token (leave empty to disable auth)
+      OCS_AUTH_TOKEN: "${OCS_AUTH_TOKEN:-}"
+      # Max jobs per IP per hour (0 disables)
+      OCS_RATE_LIMIT: "${OCS_RATE_LIMIT:-20}"
+      # Minimum free disk GB to accept new jobs
+      OCS_MIN_DISK_GB: "${OCS_MIN_DISK_GB:-5.0}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
