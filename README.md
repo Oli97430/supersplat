@@ -1,91 +1,244 @@
-# SuperSplat Editor
+<div align="center">
 
-[![Github Release](https://img.shields.io/github/v/release/playcanvas/supersplat)](https://github.com/playcanvas/supersplat/releases)
-[![License](https://img.shields.io/github/license/playcanvas/supersplat)](https://github.com/playcanvas/supersplat/blob/main/LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=flat&logo=discord&logoColor=white&color=black)](https://discord.gg/RSaMRzg)
-[![Reddit](https://img.shields.io/badge/Reddit-FF4500?style=flat&logo=reddit&logoColor=white&color=black)](https://www.reddit.com/r/PlayCanvas)
-[![X](https://img.shields.io/badge/X-000000?style=flat&logo=x&logoColor=white&color=black)](https://x.com/intent/follow?screen_name=playcanvas)
+<br>
 
-| [SuperSplat Editor](https://superspl.at/editor) | [User Guide](https://developer.playcanvas.com/user-manual/gaussian-splatting/editing/supersplat/) | [Blog](https://blog.playcanvas.com) | [Forum](https://forum.playcanvas.com) |
+```
+  ██████  ███    ██ ███████  ██████ ██      ██  ████████   ██     ███████ ██████  ██       █████  ████████
+ ██    ██ ████   ██ ██      ██      ██      ██ ██      ██  ██     ██      ██   ██ ██      ██   ██    ██
+ ██    ██ ██ ██  ██ █████   ██      ██      ██ ██      █████      ███████ ██████  ██      ███████    ██
+ ██    ██ ██  ██ ██ ██      ██      ██      ██ ██      ██  ██          ██ ██      ██      ██   ██    ██
+  ██████  ██   ████ ███████  ██████ ███████ ██  ██████ ██   ██    ███████ ██      ███████ ██   ██    ██
+```
 
-The SuperSplat Editor is a free and open source tool for inspecting, editing, optimizing and publishing 3D Gaussian Splats. It is built on web technologies and runs in the browser, so there's nothing to download or install.
+### *Reconstruct the world — one gaussian at a time.*
 
-A live version of this tool is available at: https://superspl.at/editor
+[![Release](https://img.shields.io/github/v/release/Oli97430/supersplat?label=release&color=5df5e0&labelColor=060810)](https://github.com/Oli97430/supersplat/releases)
+[![License](https://img.shields.io/github/license/playcanvas/supersplat?color=a08cff&labelColor=060810)](LICENSE)
+[![Built on PlayCanvas](https://img.shields.io/badge/built%20on-PlayCanvas-ff8052?labelColor=060810)](https://playcanvas.com)
+[![Python](https://img.shields.io/badge/backend-FastAPI%20%2B%20nerfstudio-5df5e0?labelColor=060810)](server/)
 
-![image](https://github.com/user-attachments/assets/b6cbb5cc-d3cc-4385-8c71-ab2807fd4fba)
+<br>
 
-To learn more about using SuperSplat, please refer to the [User Guide](https://developer.playcanvas.com/user-manual/gaussian-splatting/editing/supersplat/).
+[**Launch Editor**](#-quick-start) · [**Training Pipeline**](#-training-pipeline) · [**Supported Formats**](#-supported-formats) · [**Local Dev**](#-local-development)
 
-## Local Development
+<br>
 
-To initialize a local development environment for SuperSplat, ensure you have [Node.js](https://nodejs.org/) 18 or later installed. Follow these steps:
+</div>
 
-1. Clone the repository:
+---
 
-   ```sh
-   git clone https://github.com/playcanvas/supersplat.git
-   cd supersplat
-   ```
+**OneClick SPLAT** is a free, open-source browser-based studio for capturing, editing, and publishing **3D Gaussian Splat** scenes. Drop a short video or folder of photos — a local GPU pipeline handles camera pose recovery (COLMAP) and gaussian training (nerfstudio), then loads the result directly into the editor. Crop, clean, transform, and publish without leaving the browser.
 
-2. Install dependencies:
+> *Fork of [playcanvas/supersplat](https://github.com/playcanvas/supersplat) — adds a full local training pipeline on top of the original editor.*
 
-   ```sh
-   npm install
-   ```
+<br>
 
-3. Build SuperSplat and start a local web server:
+## ✦ What it does
 
-   ```sh
-   npm run develop
-   ```
+| | Feature | Detail |
+|---|---|---|
+| **◈ Train** | Photos or video → 3D splat | Drop a video (MP4/MOV/MKV) or photo folder. The pipeline extracts frames, runs COLMAP for camera pose recovery, and trains a splatfacto model with nerfstudio. ~30 min on RTX 3090. Fully offline. |
+| **◈ Edit** | Sculpt and refine | Select and delete unwanted Gaussians with box, lasso, brush, flood, or sphere tools. Adjust transforms, combine scenes, crop, and inspect per-Gaussian data. |
+| **◈ Publish** | Export anywhere | Save as `.ply`, `.spz`, or `.ssproj`. Generate LODs for web embedding. Publish to the cloud or hand off to any engine that speaks Gaussian Splat. |
 
-4. Open a web browser tab and make sure network caching is disabled on the network tab and the other application caches are clear:
+<br>
 
-   - On Safari you can use `Cmd+Option+e` or Develop->Empty Caches.
-   - On Chrome ensure the options "Update on reload" and "Bypass for network" are enabled in the Application->Service workers tab:
+## ◈ Training Pipeline
 
-   <img width="846" alt="Screenshot 2025-04-25 at 16 53 37" src="https://github.com/user-attachments/assets/888bac6c-25c1-4813-b5b6-4beecf437ac9" />
+```
+  Photos / Video
+       │
+       ▼
+  ┌─────────────┐    ffmpeg extracts frames at configurable FPS
+  │   Extract   │    (auto-detected: 1–5 fps based on video length)
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────┐    COLMAP feature extraction → matching → SfM
+  │    COLMAP   │    Sequential or vocab_tree matcher
+  └──────┬──────┘    Validates ≥ 20 registered camera poses
+         │
+         ▼
+  ┌─────────────┐    nerfstudio splatfacto — up to 30 000 iterations
+  │    Train    │    Progress streams in real time via SSE
+  └──────┬──────┘    Step-level progress parsed from stdout
+         │
+         ▼
+  ┌─────────────┐    ns-export gaussian-splat → splat.ply
+  │   Export    │    Auto-loaded into editor on completion
+  └─────────────┘
+```
 
-5. Navigate to `http://localhost:3000`
+### Requirements
 
-When changes to the source are detected, SuperSplat is rebuilt automatically. Simply refresh your browser to see your changes.
+| Component | Minimum | Recommended |
+|---|---|---|
+| GPU | NVIDIA RTX (8 GB VRAM) | RTX 3090 / 4090 |
+| Python | 3.10 | 3.10 |
+| CUDA | 11.8 | 12.x |
+| RAM | 16 GB | 32 GB |
+| Storage | 10 GB free | 50 GB free |
+| Tools | ffmpeg, COLMAP | — |
 
-## Localizing the SuperSplat Editor
+### Backend setup
 
-The currently supported languages are available here:
+```sh
+# 1. Create a Python 3.10 venv
+python3.10 -m venv venv
 
-https://github.com/playcanvas/supersplat/tree/main/static/locales
+# 2. Install nerfstudio + dependencies
+venv/Scripts/pip install nerfstudio torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
-### Adding a New Language
+# 3. Start the FastAPI training server
+venv/Scripts/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --app-dir server
 
-1. Add a new `<locale>.json` file in the `static/locales` directory.
+# 4. The editor auto-connects at http://127.0.0.1:8000
+```
 
-2. Add the locale to the list here:
+### API endpoints
 
-   https://github.com/playcanvas/supersplat/blob/main/src/ui/localization.ts
+```
+POST   /jobs              Upload video or photos, queue training
+GET    /jobs              List all jobs
+GET    /jobs/{id}         Current status JSON
+GET    /jobs/{id}/stream  SSE stream of live progress
+GET    /jobs/{id}/log     Raw subprocess log (ffmpeg / COLMAP / nerfstudio)
+GET    /jobs/{id}/ply     Download finished PLY
+POST   /jobs/{id}/cancel  Cancel running job
+DELETE /jobs/{id}         Remove job and all files
+GET    /gpu               Detected GPU info (name, VRAM, free VRAM)
+```
 
-### Testing Translations
+<br>
 
-To test your translations:
+## ◈ Supported Formats
 
-1. Run the development server:
+| Format | Read | Write | Notes |
+|---|:---:|:---:|---|
+| `.ply` | ✓ | ✓ | Primary format — standard 3DGS PLY |
+| `.splat` | ✓ | ✓ | Compact binary splat |
+| `.spz` | ✓ | ✓ | Compressed, web-optimised |
+| `.ksplat` | ✓ | — | Kevin Kwok format |
+| `.sog` | ✓ | — | Scene Object Graph |
+| `.ssproj` | ✓ | ✓ | OneClick SPLAT project (with animation data) |
 
-   ```sh
-   npm run develop
-   ```
+<br>
 
-2. Open your browser and navigate to:
+## ◈ Quick Start
 
-   ```
-   http://localhost:3000/?lng=<locale>
-   ```
+### Run the editor (no training)
 
-   Replace `<locale>` with your language code (e.g., `fr`, `de`, `es`).
+```sh
+# Clone
+git clone https://github.com/Oli97430/supersplat.git
+cd supersplat
 
-## Contributors
+# Install
+npm install
 
-SuperSplat is made possible by our amazing open source community:
+# Develop (auto-rebuild on save)
+npm run develop
+```
 
-<a href="https://github.com/playcanvas/supersplat/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=playcanvas/supersplat" />
-</a>
+Open **`http://localhost:3000`** — drag any `.ply` or `.splat` file onto the canvas.
+
+### Run with training backend
+
+```sh
+# Terminal 1 — editor
+npm run develop
+
+# Terminal 2 — training server
+cd server
+python -m uvicorn main:app --reload
+```
+
+Click **Train** in the editor, drop a video or photos, and hit **Begin Training**.
+
+<br>
+
+## ◈ Local Development
+
+```sh
+# Production build
+npm run build
+
+# Lint
+npm run lint
+
+# Serve the built dist/
+npm run serve
+```
+
+> Node.js ≥ 20 required. Tested on Windows (primary), Linux, macOS.
+
+### Project structure
+
+```
+repo/
+├── src/
+│   ├── ui/               # PCUI-based component system
+│   │   ├── train-popup.ts       # Training console UI
+│   │   ├── empty-state.ts       # Welcome / onboarding state
+│   │   └── scss/                # Per-component SCSS
+│   ├── shaders/          # WebGL GLSL shaders (inline TS)
+│   ├── tools/            # Selection & transform tools
+│   └── data-processor/   # Worker-thread GPU data processing
+├── server/
+│   ├── main.py           # FastAPI app, job registry, SSE
+│   └── pipeline.py       # ffmpeg → COLMAP → nerfstudio pipeline
+├── static/
+│   ├── locales/          # i18n JSON files (9 languages)
+│   └── icons/
+└── landing.html          # Product landing page
+```
+
+<br>
+
+## ◈ Localisation
+
+Nine languages are supported out of the box: **English, French, German, Spanish, Japanese, Korean, Portuguese (BR), Russian, Simplified Chinese**.
+
+Add a new language:
+
+1. Create `static/locales/<locale>.json` (copy `en.json` as a base).
+2. Add the locale to `src/ui/localization.ts`.
+3. Test at `http://localhost:3000/?lng=<locale>`.
+
+<br>
+
+## ◈ Keyboard Shortcuts
+
+| Action | Shortcut |
+|---|---|
+| Open file | `Ctrl / Cmd + O` |
+| Save project | `Ctrl / Cmd + S` |
+| Undo / Redo | `Ctrl + Z` / `Ctrl + Y` |
+| Delete selected | `Del` |
+| Focus camera on selection | `F` |
+| Box select | `B` |
+| Lasso select | `L` |
+| Brush select | `P` |
+| Toggle splat / centers view | `Tab` |
+| Dismiss training console | `Esc` |
+
+<br>
+
+## ◈ Credits
+
+OneClick SPLAT is built on **[SuperSplat](https://github.com/playcanvas/supersplat)** by PlayCanvas — an extraordinary open-source foundation.
+
+Training pipeline powered by:
+- **[nerfstudio](https://github.com/nerfstudio-project/nerfstudio)** — splatfacto trainer & exporter
+- **[COLMAP](https://colmap.github.io/)** — structure-from-motion
+- **[ffmpeg](https://ffmpeg.org/)** — video frame extraction
+
+<br>
+
+---
+
+<div align="center">
+
+*Built on [PlayCanvas](https://playcanvas.com) · v2.27.0 · MIT License*
+
+</div>
