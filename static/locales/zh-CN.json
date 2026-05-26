@@ -12,6 +12,7 @@
     "menu.file.export.ply": "PLY (.ply)",
     "menu.file.export.splat": "Splat (.splat)",
     "menu.file.export.sog": "SOG (.sog)",
+    "menu.file.export.glb": "glTF (.glb)",
     "menu.file.export.viewer": "查看器应用",
     "menu.select": "选择",
     "menu.select.all": "全部",

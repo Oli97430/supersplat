@@ -4,6 +4,7 @@ import {
     logger as splatTransformLogger,
     MemoryFileSystem,
     Transform,
+    writeGlb as writeGlbInternal,
     writeHtml,
     writeSog as writeSogInternal,
     ZipFileSystem,
@@ -1358,12 +1359,30 @@ const serializeSog = async (splats: Splat[], settings: SogSettings, fs: FileSyst
     }
 };
 
+// GLB serialization using splat-transform library
+// Writes a binary glTF file with the KHR_gaussian_splatting Khronos extension
+// (https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_gaussian_splatting).
+// Compatible with PlayCanvas, Babylon.js (native), and Three.js (via gsplat-loader plugins).
+const serializeGlb = async (splats: Splat[], settings: SerializeSettings, fs: FileSystem): Promise<void> => {
+    const dataTable = extractDataTable(splats, settings);
+    try {
+        await writeGlbInternal({
+            filename: 'output.glb',
+            dataTable
+        }, fs);
+    } catch (err) {
+        splatTransformLogger.unwindAll(true);
+        throw err;
+    }
+};
+
 export {
     Writer,
     serializePly,
     serializePlyCompressed,
     serializeSplat,
     serializeSog,
+    serializeGlb,
     serializeViewer,
     AnimTrack,
     CameraPose,

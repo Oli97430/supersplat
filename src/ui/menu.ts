@@ -137,6 +137,11 @@ class Menu extends Container {
             isEnabled: () => !events.invoke('scene.empty'),
             onSelect: () => events.invoke('scene.export', 'sog')
         }, {
+            text: localize('menu.file.export.glb'),
+            icon: createSvg(sceneExport),
+            isEnabled: () => !events.invoke('scene.empty'),
+            onSelect: () => events.invoke('scene.export', 'glb')
+        }, {
             // separator
         }, {
             text: localize('menu.file.export.viewer', { ellipsis: true }),
@@ -203,11 +208,6 @@ class Menu extends Container {
             text: localize('menu.file.export'),
             icon: createSvg(sceneExport),
             subMenu: exportMenuPanel
-        }, {
-            text: localize('menu.file.publish', { ellipsis: true }),
-            icon: createSvg(scenePublish),
-            isEnabled: () => !events.invoke('scene.empty'),
-            onSelect: async () => await events.invoke('show.publishSettingsDialog')
         }]);
 
         const selectionMenuPanel = new MenuPanel([{

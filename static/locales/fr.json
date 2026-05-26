@@ -13,6 +13,7 @@
     "menu.file.export.ply": "PLY (.ply)",
     "menu.file.export.splat": "Splat (.splat)",
     "menu.file.export.sog": "SOG (.sog)",
+    "menu.file.export.glb": "glTF (.glb)",
     "menu.file.export.viewer": "Application de visualisation",
     "menu.select": "Sélection",
     "menu.select.all": "Tout",

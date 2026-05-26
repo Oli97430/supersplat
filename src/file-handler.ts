@@ -6,15 +6,15 @@ import { Events } from './events';
 import { BrowserFileSystem, MappedReadFileSystem } from './io';
 import { Scene } from './scene';
 import { Splat } from './splat';
-import { serializePly, serializePlyCompressed, SerializeSettings, serializeSog, serializeSplat, serializeViewer, SogSettings, ViewerExportSettings } from './splat-serialize';
+import { serializeGlb, serializePly, serializePlyCompressed, SerializeSettings, serializeSog, serializeSplat, serializeViewer, SogSettings, ViewerExportSettings } from './splat-serialize';
 import { localize } from './ui/localization';
 
 // ts compiler and vscode find this type, but eslint does not
 type FilePickerAcceptType = unknown;
 
-type ExportType = 'ply' | 'splat' | 'sog' | 'viewer';
+type ExportType = 'ply' | 'splat' | 'sog' | 'glb' | 'viewer';
 
-type FileType = 'ply' | 'compressedPly' | 'splat' | 'sog' | 'htmlViewer' | 'packageViewer';
+type FileType = 'ply' | 'compressedPly' | 'splat' | 'sog' | 'glb' | 'htmlViewer' | 'packageViewer';
 
 interface SceneExportOptions {
     filename: string;
@@ -74,6 +74,12 @@ const filePickerTypes: { [key: string]: FilePickerAcceptType } = {
         description: 'SPZ File (Niantic)',
         accept: {
             'application/x-gaussian-splat': ['.spz']
+        }
+    },
+    'glb': {
+        description: 'glTF Binary (KHR_gaussian_splatting)',
+        accept: {
+            'model/gltf-binary': ['.glb']
         }
     },
     'indexTxt': {
@@ -501,7 +507,8 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
         const fileType: FileType =
             (exportType === 'viewer') ? (options.viewerExportSettings!.type === 'zip' ? 'packageViewer' : 'htmlViewer') :
                 (exportType === 'ply') ? (options.compressedPly ? 'compressedPly' : 'ply') :
-                    (exportType === 'sog') ? 'sog' : 'splat';
+                    (exportType === 'sog') ? 'sog' :
+                        (exportType === 'glb') ? 'glb' : 'splat';
 
         if (hasFilePicker) {
             try {
@@ -565,6 +572,9 @@ const initFileHandler = (scene: Scene, events: Events, dropTarget: HTMLElement) 
                     await serializeSog(splats, sogSettings, fs);
                     break;
                 }
+                case 'glb':
+                    await serializeGlb(splats, serializeSettings, fs);
+                    break;
                 case 'htmlViewer':
                 case 'packageViewer':
                     await serializeViewer(splats, serializeSettings, { ...viewerExportSettings!, events }, fs);
