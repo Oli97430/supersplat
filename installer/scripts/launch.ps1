@@ -36,17 +36,24 @@ $FfmpegBin    = Join-Path $AppDir "tools\ffmpeg\bin"
 $ServeScript  = Join-Path $AppDir "scripts\serve-frontend.ps1"
 
 # ── Sanity check: was install-deps run AND did it finish? ───────────────
-# Just checking python.exe isn't enough — install-deps can stop midway
-# (e.g. after pip upgrade, before torch install), leaving a half-built venv.
-$venvOk = $false
-if (Test-Path $VenvPy) {
-    # Verify the critical modules import cleanly. If any missing, treat
-    # the install as incomplete and re-trigger the deps installer.
-    & $VenvPy -c "import uvicorn, fastapi, torch, nerfstudio" 2>$null
-    $venvOk = ($LASTEXITCODE -eq 0)
-    if (-not $venvOk) {
-        Write-Host "  ! Venv exists but core modules are missing -- treating as incomplete install." -ForegroundColor Yellow
+# Just checking python.exe isn't enough -- install-deps can stop midway,
+# leaving a half-built venv. Probe the site-packages directly (filesystem
+# check, no subprocess) so a missing-module stderr can't crash this script
+# via PowerShell's NativeCommandError trap.
+function Test-VenvHealthy {
+    param([string]$VenvRoot)
+    $sp = Join-Path $VenvRoot "Lib\site-packages"
+    foreach ($mod in @("uvicorn", "fastapi", "torch", "nerfstudio")) {
+        if (-not (Test-Path (Join-Path $sp "$mod\__init__.py"))) {
+            return $false
+        }
     }
+    return $true
+}
+
+$venvOk = (Test-Path $VenvPy) -and (Test-VenvHealthy -VenvRoot $Venv)
+if (-not $venvOk -and (Test-Path $VenvPy)) {
+    Write-Host "  ! Venv exists but core modules are missing -- treating as incomplete install." -ForegroundColor Yellow
 }
 if (-not $venvOk) {
     $InstallDeps = Join-Path $AppDir "scripts\install-deps.ps1"
@@ -86,11 +93,21 @@ if (-not $venvOk) {
             )
             Start-Process powershell -Verb RunAs -Wait -ArgumentList $psArgs
             Write-Host ""
-            if (Test-Path $VenvPy) {
-                Write-Host "  Done. Continuing startup..." -ForegroundColor Green
+            # Re-run the FULL health check, not just Test-Path on python.exe.
+            # install-deps can return apparent success while the venv is still
+            # missing torch/nerfstudio (e.g. if a pip install half-succeeded).
+            if (Test-VenvHealthy -VenvRoot $Venv) {
+                Write-Host "  Done. All modules present. Continuing startup..." -ForegroundColor Green
                 Write-Host ""
             } else {
-                Write-Host "  Installer finished but venv is still missing." -ForegroundColor Red
+                Write-Host "  Installer finished but the venv is still incomplete:" -ForegroundColor Red
+                $sp = Join-Path $Venv "Lib\site-packages"
+                foreach ($mod in @("uvicorn", "fastapi", "torch", "nerfstudio")) {
+                    $present = Test-Path (Join-Path $sp "$mod\__init__.py")
+                    $glyph = if ($present) { "OK" } else { "MISSING" }
+                    Write-Host ("    {0,-10}  {1}" -f $mod, $glyph) -ForegroundColor $(if ($present) { 'Green' } else { 'Red' })
+                }
+                Write-Host ""
                 Write-Host "  Logs to check:"  -ForegroundColor Gray
                 Write-Host "    $LogDir\install.log" -ForegroundColor Gray
                 Write-Host "    $env:TEMP\oneclicksplat-install-crash.log" -ForegroundColor Gray

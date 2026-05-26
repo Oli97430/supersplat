@@ -163,12 +163,22 @@ if ($rc -ne 0) { throw "pip upgrade failed (exit $rc)" }
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. PyTorch CUDA 11.8
 # ─────────────────────────────────────────────────────────────────────────────
+# IMPORTANT: do NOT use `& python -c "import torch" 2>$null` to probe -- when
+# the import fails, Python writes to stderr; PowerShell 5.1 wraps each stderr
+# line in a NativeCommandError record; with $ErrorActionPreference = "Stop"
+# the script dies silently on this line. Probe via filesystem instead.
 Log "Checking for existing PyTorch install..."
-$TorchInstalled = & $VenvPy -c "import torch; print(torch.__version__)" 2>$null
-$torchProbeExit = $LASTEXITCODE
-Log "Torch probe -> output='$TorchInstalled', exit=$torchProbeExit"
+$TorchInstalled = $null
+$TorchSitePath  = Join-Path $Venv "Lib\site-packages\torch\version.py"
+if (Test-Path $TorchSitePath) {
+    try {
+        $verLine = Select-String -Path $TorchSitePath -Pattern "__version__\s*=" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($verLine) { $TorchInstalled = ($verLine.Line -split "'|""")[1] }
+    } catch { $TorchInstalled = "unknown" }
+}
+Log "Torch probe -> $(if ($TorchInstalled) { $TorchInstalled } else { 'not found' })"
 
-if (-not $TorchInstalled -or $torchProbeExit -ne 0) {
+if (-not $TorchInstalled) {
     Log "Installing PyTorch 2.1.2 + CUDA 11.8 (this can take several minutes -- ~2.7 GB)"
     & $VenvPip install --no-cache-dir `
         torch==2.1.2+cu118 `
@@ -185,9 +195,12 @@ if (-not $TorchInstalled -or $torchProbeExit -ne 0) {
 # 4. nerfstudio
 # ─────────────────────────────────────────────────────────────────────────────
 Log "Checking for existing nerfstudio install..."
-$NSInstalled = & $VenvPy -c "import nerfstudio; print(nerfstudio.__version__)" 2>$null
-$nsProbeExit = $LASTEXITCODE
-Log "nerfstudio probe -> output='$NSInstalled', exit=$nsProbeExit"
+$NSInstalled = $null
+$NSInitPath  = Join-Path $Venv "Lib\site-packages\nerfstudio\__init__.py"
+if (Test-Path $NSInitPath) {
+    $NSInstalled = "present"
+}
+Log "nerfstudio probe -> $(if ($NSInstalled) { 'present' } else { 'not found' })"
 
 if (-not $NSInstalled) {
     Log "Installing nerfstudio (this will pull tinycudann etc., ~2 GB)"
