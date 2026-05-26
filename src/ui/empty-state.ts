@@ -21,7 +21,7 @@ const TEMPLATE = `<!DOCTYPE html><body>
     <div class="ems-corner ems-corner--tr">
         <span class="ems-dim"><span class="ems-dot"></span> live</span>
         <span class="ems-dim" data-ems-utc>00:00:00</span>
-        <span class="ems-dim">v2.26</span>
+        <span class="ems-dim">v2.27</span>
     </div>
 
     <button class="ems-dismiss" data-ems-dismiss type="button">

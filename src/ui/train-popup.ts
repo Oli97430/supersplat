@@ -399,9 +399,14 @@ class TrainPopup extends Container {
         };
 
         retryBtn.addEventListener('click', async () => {
+            const prev = retryBtn.textContent!;
+            retryBtn.textContent = '⟳ CHECKING…';
+            retryBtn.disabled = true;
             const newUrl = urlInput.value.trim();
             if (newUrl) setBackendUrl(newUrl);
             await checkBackend();
+            retryBtn.textContent = prev;
+            retryBtn.disabled = false;
         });
 
         // ── GPU info ────────────────────────────────────────────────
@@ -764,7 +769,7 @@ class TrainPopup extends Container {
             pickBtn.classList.add('is-over');
         });
         consoleEl.addEventListener('dragleave', (e: DragEvent) => {
-            if (!consoleEl.contains(e.relatedTarget as Node)) {
+            if (!e.relatedTarget || !consoleEl.contains(e.relatedTarget as Node)) {
                 pickBtn.classList.remove('is-over');
             }
         });
@@ -797,9 +802,15 @@ class TrainPopup extends Container {
             });
         });
 
-        itersSlider.addEventListener('input', () => {
-            itersOut.textContent = itersSlider.value;
-        });
+        const syncSlider = () => {
+            const min = +itersSlider.min;  // 5000
+            const max = +itersSlider.max;  // 60000
+            const p = ((+itersSlider.value - min) / (max - min) * 100).toFixed(1);
+            itersSlider.style.setProperty('--p', `${p}%`);
+            itersOut.textContent = Number(itersSlider.value).toLocaleString();
+        };
+        syncSlider(); // initialise the gradient fill
+        itersSlider.addEventListener('input', syncSlider);
 
         // ── Reset / Detach logic ────────────────────────────────────
         const reset = () => {

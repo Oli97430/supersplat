@@ -1,7 +1,11 @@
-// Photogrammetric Reconstruction Console — brutalist scientific instrument
-// Deep blueprint navy + cadmium yellow + cyan + rust red.
-// Typography: JetBrains Mono everywhere, Major Mono Display for the headline.
+// ─────────────────────────────────────────────────────────────────────────────
+// Photogrammetric Reconstruction Console
+// Brutalist scientific-instrument aesthetic.
+// JetBrains Mono everywhere · Major Mono Display for display numerals.
+// Blueprint navy · cadmium amber · cyan · rust.
+// ─────────────────────────────────────────────────────────────────────────────
 
+// ── Palette ───────────────────────────────────────────────────────────────────
 $ink:        #f1f5f9;
 $ink-dim:    #8da3bb;
 $ink-faint:  #4a5d77;
@@ -18,1135 +22,1293 @@ $line-bold:  #324a6d;
 $amber:      #f4d35e;
 $amber-hot:  #ffaa17;
 $cyan:       #5fd3e9;
+$cyan-bright:#a8f0fa;
 $rust:       #e76f51;
+$rust-bright:#f09070;
 $lime:       #b5f200;
 
+// ── Shell ──────────────────────────────────────────────────────────────────────
 #train-popup {
     width: 100%;
     height: 100%;
     pointer-events: all;
-    z-index: 200;     // above the empty-state overlay (z-index: 100)
+    z-index: 200;
     color: $ink;
-
-    // Heavy vignette behind to focus attention
     background:
-        radial-gradient(120% 90% at 50% 40%, rgba(8, 20, 40, 0.55) 0%, rgba(0, 0, 0, 0.88) 100%);
-    backdrop-filter: blur(3px) saturate(0.9);
-    -webkit-backdrop-filter: blur(3px) saturate(0.9);
+        radial-gradient(120% 90% at 50% 40%, rgba(8, 20, 40, 0.52) 0%, rgba(0, 0, 0, 0.88) 100%);
+    backdrop-filter: blur(3px) saturate(0.85);
+    -webkit-backdrop-filter: blur(3px) saturate(0.85);
+}
 
-    // ── Console root ──────────────────────────────────────────────
-    .tk-console {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
-        font-size: 12px;
-        line-height: 1.45;
+// ── Console root ───────────────────────────────────────────────────────────────
+.tk-console {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', ui-monospace, 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    color: $ink;
+    letter-spacing: 0.02em;
+
+    // PCUI resets
+    h2    { margin: 0; }
+    p     { margin: 0; }
+    ul, ol { list-style: none; margin: 0; padding: 0; }
+    dl, dt, dd { margin: 0; padding: 0; }
+    label { font-family: inherit; }
+
+    // Interactive resets
+    button {
+        font-family: inherit;
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: pointer;
+    }
+
+    label, dt, dd, .tk-rule span {
+        user-select: none;
+        -webkit-user-select: none;
+    }
+
+    // Global focus-visible ring
+    :focus-visible {
+        outline: 2px solid $amber;
+        outline-offset: 2px;
+    }
+}
+
+// ── Blueprint grid ─────────────────────────────────────────────────────────────
+.tk-grid {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(95, 211, 233, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(95, 211, 233, 0.04) 1px, transparent 1px),
+        linear-gradient(rgba(95, 211, 233, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(95, 211, 233, 0.08) 1px, transparent 1px);
+    background-size: 20px 20px, 20px 20px, 100px 100px, 100px 100px;
+    background-position: -1px -1px;
+    mask-image: radial-gradient(ellipse 75% 65% at 50% 50%, #000 30%, transparent 100%);
+}
+
+.tk-noise {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.045;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+// Subtle horizontal scanlines over everything
+.tk-frame::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+        0deg, transparent 0 2px, rgba(0, 0, 0, 0.07) 2px 3px
+    );
+    z-index: 0;
+}
+
+// ── Outer frame ────────────────────────────────────────────────────────────────
+.tk-frame {
+    position: relative;
+    width: min(920px, 92vw);
+    max-height: 92vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 26px 36px 22px;
+    background: linear-gradient(180deg, rgba(14, 27, 48, 0.96) 0%, rgba(8, 16, 30, 0.98) 100%);
+    border: 1px solid $line-bold;
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.65),
+        0 40px 100px rgba(0, 0, 0, 0.65),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    animation: tk-frame-in 0.44s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+    // Styled scrollbar
+    scrollbar-width: thin;
+    scrollbar-color: $line-bold $bg-rail;
+    &::-webkit-scrollbar       { width: 6px; }
+    &::-webkit-scrollbar-track  { background: $bg-rail; }
+    &::-webkit-scrollbar-thumb  { background: $line-bold; border-radius: 0; }
+    &::-webkit-scrollbar-thumb:hover { background: $ink-faint; }
+}
+
+// All direct children of frame sit above the scanlines overlay
+.tk-frame > * { position: relative; z-index: 1; }
+
+// ── Corner brackets ────────────────────────────────────────────────────────────
+.tk-corner {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    font-size: 16px;
+    color: $amber;
+    font-weight: 700;
+    text-shadow: 0 0 8px rgba(244, 211, 94, 0.55);
+    transition: color 0.4s ease, text-shadow 0.4s ease;
+    z-index: 2;
+    user-select: none;
+
+    &.tk-tl { top: -8px; left: -8px; }
+    &.tk-tr { top: -8px; right: -8px; }
+    &.tk-bl { bottom: -8px; left: -8px; }
+    &.tk-br { bottom: -8px; right: -8px; }
+}
+
+// ── Head ───────────────────────────────────────────────────────────────────────
+.tk-head {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 12px;
+}
+
+.tk-title {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+
+    h2 {
+        font-family: 'Major Mono Display', 'JetBrains Mono', monospace;
+        font-size: 18px;
+        font-weight: 400;
+        letter-spacing: 0.04em;
         color: $ink;
-        letter-spacing: 0.02em;
-
-        // re-set on inner elements that PCUI tries to override
-        button { font-family: inherit; }
-        h2 { margin: 0; }
-        p { margin: 0; }
-        dl, dt, dd { margin: 0; padding: 0; }
-        ol { list-style: none; margin: 0; padding: 0; }
-        label { font-family: inherit; }
+        text-transform: lowercase;
+        line-height: 1;
+        user-select: none;
     }
 
-    // ── Blueprint grid background ────────────────────────────────
-    .tk-grid {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        background-image:
-            linear-gradient(rgba(95, 211, 233, 0.045) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(95, 211, 233, 0.045) 1px, transparent 1px),
-            linear-gradient(rgba(95, 211, 233, 0.085) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(95, 211, 233, 0.085) 1px, transparent 1px);
-        background-size: 20px 20px, 20px 20px, 100px 100px, 100px 100px;
-        background-position: -1px -1px;
-        mask-image: radial-gradient(ellipse 75% 65% at 50% 50%, #000 30%, transparent 100%);
-    }
-
-    .tk-noise {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        opacity: 0.05;
-        mix-blend-mode: overlay;
-        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-    }
-
-    // ── Outer frame ──────────────────────────────────────────────
-    .tk-frame {
-        position: relative;
-        width: min(920px, 92vw);
-        max-height: 92vh;
-        overflow: auto;
-        padding: 26px 36px 22px;
-        background:
-            linear-gradient(180deg, rgba(14, 27, 48, 0.95) 0%, rgba(8, 16, 30, 0.97) 100%);
-        border: 1px solid $line-bold;
-        box-shadow:
-            0 0 0 1px rgba(0, 0, 0, 0.6),
-            0 30px 80px rgba(0, 0, 0, 0.55),
-            inset 0 1px 0 rgba(255, 255, 255, 0.04);
-
-        animation: tk-frame-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
-    }
-
-    .tk-corner {
-        position: absolute;
-        width: 16px;
-        height: 16px;
-        line-height: 16px;
-        text-align: center;
-        font-size: 16px;
+    .tk-bracket {
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 800;
+        font-size: 22px;
         color: $amber;
-        font-weight: 700;
-        text-shadow: 0 0 6px rgba(244, 211, 94, 0.5);
-
-        &.tk-tl { top: -8px; left: -8px; }
-        &.tk-tr { top: -8px; right: -8px; }
-        &.tk-bl { bottom: -8px; left: -8px; }
-        &.tk-br { bottom: -8px; right: -8px; }
+        user-select: none;
     }
+}
 
-    // ── Head ─────────────────────────────────────────────────────
-    .tk-head {
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-        padding-bottom: 12px;
-    }
+.tk-meta {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    border-top: 1px solid $line;
+    border-bottom: 1px solid $line;
 
-    .tk-title {
-        display: flex;
-        align-items: baseline;
-        gap: 10px;
-
-        h2 {
-            font-family: 'Major Mono Display', 'JetBrains Mono', monospace;
-            font-size: 18px;
-            font-weight: 400;
-            letter-spacing: 0.04em;
-            color: $ink;
-            text-transform: lowercase;
-            line-height: 1;
-        }
-
-        .tk-bracket {
-            font-family: 'JetBrains Mono', monospace;
-            font-weight: 800;
-            font-size: 22px;
-            color: $amber;
-        }
-    }
-
-    .tk-meta {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 0;
-        font-size: 10px;
-        letter-spacing: 0.08em;
-        border-top: 1px solid $line;
-        border-bottom: 1px solid $line;
-
-        > div {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 12px;
-            border-right: 1px solid $line;
-
-            &:last-child { border-right: none; }
-        }
-
-        dt {
-            color: $ink-faint;
-            font-weight: 700;
-        }
-
-        dd {
-            color: $ink;
-            font-weight: 500;
-        }
-    }
-
-    // ── Section dividers with label ──────────────────────────────
-    .tk-rule {
+    > div {
         display: flex;
         align-items: center;
-        gap: 12px;
-        margin: 18px 0 12px;
-        color: $amber;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.22em;
-        text-transform: uppercase;
-
-        &::before, &::after {
-            content: '';
-            height: 1px;
-            background: $line-bold;
-            flex: 1;
-        }
-
-        &::before { flex: 0 0 24px; }
-
-        span {
-            padding: 0 2px;
-            background: $bg-card;
-        }
-    }
-
-    // ── Sections ─────────────────────────────────────────────────
-    .tk-section {
-        display: grid;
-        grid-template-columns: 56px 1fr;
-        gap: 16px;
-        margin-bottom: 4px;
-    }
-
-    .tk-step {
-        font-family: 'Major Mono Display', monospace;
-        font-size: 38px;
-        line-height: 1;
-        color: $amber;
-        opacity: 0.7;
-        font-feature-settings: 'tnum' 1;
-        padding-top: 4px;
-        text-align: right;
+        gap: 8px;
+        padding: 6px 12px;
         border-right: 1px solid $line;
-        padding-right: 12px;
+
+        &:last-child { border-right: none; }
     }
 
-    .tk-step-body {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
+    dt {
+        color: $ink-faint;
+        font-weight: 700;
+        user-select: none;
+    }
+
+    dd {
+        color: $ink;
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+// ── Rule dividers ──────────────────────────────────────────────────────────────
+.tk-rule {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 18px 0 12px;
+    color: $amber;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    user-select: none;
+
+    &::before, &::after {
+        content: '';
+        height: 1px;
+        background: $line-bold;
+        flex: 1;
+    }
+    &::before { flex: 0 0 24px; }
+
+    span {
+        padding: 0 4px;
+        // Use a solid bg close to the frame gradient midpoint
+        background: #0d1a2e;
+    }
+}
+
+// ── Sections ───────────────────────────────────────────────────────────────────
+.tk-section {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 16px;
+    margin-bottom: 4px;
+    transition: opacity 0.3s ease;
+}
+
+.tk-step {
+    font-family: 'Major Mono Display', monospace;
+    font-size: 38px;
+    line-height: 1;
+    color: $amber;
+    opacity: 0.7;
+    font-feature-settings: 'tnum' 1;
+    padding-top: 4px;
+    text-align: right;
+    border-right: 1px solid $line;
+    padding-right: 12px;
+    user-select: none;
+}
+
+.tk-step-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.tk-help {
+    color: $ink-dim;
+    font-size: 11px;
+    font-style: italic;
+    letter-spacing: 0.02em;
+    user-select: none;
+}
+
+// ── File drop zone ─────────────────────────────────────────────────────────────
+.tk-drop {
+    position: relative;
+    padding: 22px 18px;
+    background: rgba(95, 211, 233, 0.03);
+    border: 1px dashed $line-bold;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: $ink;
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+    will-change: transform;
+
+    &:hover, &.is-over {
+        background: rgba(244, 211, 94, 0.07);
+        border-color: $amber;
+        border-style: solid;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(244, 211, 94, 0.15);
+
+        .tk-drop-corner { color: $amber-hot; }
+        .tk-drop-icon   { color: $amber; }
+        .tk-drop-text   { color: $amber; }
+    }
+
+    &:active {
+        transform: translateY(0);
+        box-shadow: none;
+    }
+
+    &:focus-visible {
+        outline: 2px solid $amber;
+        outline-offset: 3px;
+    }
+
+    .tk-drop-corner {
+        position: absolute;
+        font-size: 14px;
+        color: $line-bold;
+        font-family: 'JetBrains Mono', monospace;
+        transition: color 0.18s;
+        user-select: none;
+
+        &.tk-tl { top: 2px;    left: 4px;  }
+        &.tk-tr { top: 2px;    right: 4px; }
+        &.tk-bl { bottom: 2px; left: 4px;  }
+        &.tk-br { bottom: 2px; right: 4px; }
+    }
+
+    .tk-drop-icon {
+        font-size: 22px;
+        color: $cyan;
+        margin-bottom: 4px;
+        line-height: 1;
+        transition: color 0.18s;
+        user-select: none;
+    }
+
+    .tk-drop-text {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        color: $ink;
+        transition: color 0.18s;
+        user-select: none;
+    }
+
+    .tk-drop-sub {
+        font-size: 10px;
+        color: $ink-faint;
+        letter-spacing: 0.12em;
+        user-select: none;
+    }
+}
+
+// ── Source row ─────────────────────────────────────────────────────────────────
+.tk-source {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-left: 2px solid $cyan;
+    background: rgba(95, 211, 233, 0.06);
+    font-size: 11px;
+
+    .tk-source-kind {
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        color: $cyan;
+        padding: 2px 6px;
+        border: 1px solid $cyan;
+        user-select: none;
+        flex-shrink: 0;
+
+        &[data-tone="amber"] { color: $amber; border-color: $amber; }
+    }
+
+    .tk-source-name {
+        flex: 1;
+        color: $ink;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         min-width: 0;
     }
 
-    .tk-help {
+    .tk-source-bytes {
         color: $ink-dim;
-        font-size: 11px;
-        font-style: italic;
-        letter-spacing: 0.02em;
+        font-variant-numeric: tabular-nums;
+        flex-shrink: 0;
+        user-select: none;
     }
 
-    // ── File drop ────────────────────────────────────────────────
-    .tk-drop {
-        position: relative;
-        padding: 22px 18px;
-        background: rgba(95, 211, 233, 0.03);
-        border: 1px dashed $line-bold;
-        cursor: pointer;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 4px;
-        color: $ink;
-        transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-
-        &:hover, &.is-over {
-            background: rgba(244, 211, 94, 0.07);
-            border-color: $amber;
-            transform: translateY(-1px);
-
-            .tk-drop-corner { color: $amber-hot; }
-            .tk-drop-icon { color: $amber; }
-            .tk-drop-text { color: $amber; }
-        }
-
-        .tk-drop-corner {
-            position: absolute;
-            font-size: 14px;
-            color: $line-bold;
-            font-family: 'JetBrains Mono', monospace;
-
-            &.tk-tl { top: 2px; left: 4px; }
-            &.tk-tr { top: 2px; right: 4px; }
-            &.tk-bl { bottom: 2px; left: 4px; }
-            &.tk-br { bottom: 2px; right: 4px; }
-        }
-
-        .tk-drop-icon {
-            font-size: 22px;
-            color: $cyan;
-            margin-bottom: 4px;
-            line-height: 1;
-        }
-
-        .tk-drop-text {
-            font-size: 13px;
-            font-weight: 700;
-            letter-spacing: 0.14em;
-            color: $ink;
-        }
-
-        .tk-drop-sub {
-            font-size: 10px;
-            color: $ink-faint;
-            letter-spacing: 0.12em;
-        }
-    }
-
-    .tk-source {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 8px 12px;
-        border-left: 2px solid $cyan;
-        background: rgba(95, 211, 233, 0.06);
-        font-size: 11px;
-
-        .tk-source-kind {
-            font-weight: 800;
-            letter-spacing: 0.14em;
-            color: $cyan;
-            padding: 2px 6px;
-            border: 1px solid $cyan;
-
-            &[data-tone="amber"] {
-                color: $amber;
-                border-color: $amber;
-            }
-        }
-
-        .tk-source-name {
-            flex: 1;
-            color: $ink;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .tk-source-bytes {
-            color: $ink-dim;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .tk-source-clear {
-            background: none;
-            border: 1px solid $line-bold;
-            color: $ink-dim;
-            width: 18px;
-            height: 18px;
-            font-size: 12px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            &:hover {
-                color: $rust;
-                border-color: $rust;
-            }
-        }
-    }
-
-    // ── Params ───────────────────────────────────────────────────
-    .tk-section--params .tk-step-body {
-        gap: 14px;
-    }
-
-    .tk-param {
-        display: grid;
-        grid-template-columns: 140px 1fr 100px;
-        gap: 12px;
-        align-items: center;
-
-        label {
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.18em;
-            color: $ink-dim;
-            text-transform: uppercase;
-        }
-
-        .tk-param-hint {
-            font-size: 10px;
-            color: $ink-faint;
-            font-style: italic;
-            letter-spacing: 0.04em;
-        }
-
-        .tk-param-value {
-            text-align: right;
-            font-family: 'Major Mono Display', monospace;
-            font-size: 22px;
-            color: $amber;
-            font-variant-numeric: tabular-nums;
-            letter-spacing: 0.02em;
-        }
-    }
-
-    // ── Segmented control ────────────────────────────────────────
-    .tk-segmented {
-        display: flex;
+    .tk-source-clear {
+        background: none;
         border: 1px solid $line-bold;
-        height: 26px;
-
-        button {
-            flex: 1;
-            background: transparent;
-            border: none;
-            border-right: 1px solid $line;
-            color: $ink-dim;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-            cursor: pointer;
-            padding: 0 10px;
-            transition: background 0.12s, color 0.12s;
-
-            &:last-child { border-right: none; }
-
-            &:hover {
-                background: rgba(244, 211, 94, 0.08);
-                color: $amber;
-            }
-
-            &.is-active {
-                background: $amber;
-                color: $bg-deep;
-                font-weight: 800;
-            }
-        }
-    }
-
-    // ── Slider ───────────────────────────────────────────────────
-    .tk-dial {
-        position: relative;
-
-        input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 100%;
-            height: 4px;
-            background: linear-gradient(90deg, $amber 0%, $amber var(--p, 50%), $line-bold var(--p, 50%), $line-bold 100%);
-            border: 1px solid $line-bold;
-            outline: none;
-            cursor: pointer;
-            margin: 4px 0 8px;
-
-            &::-webkit-slider-thumb {
-                -webkit-appearance: none;
-                appearance: none;
-                width: 12px;
-                height: 18px;
-                background: $amber;
-                border: 1px solid $bg-deep;
-                cursor: grab;
-                box-shadow: 0 0 0 1px $amber;
-            }
-
-            &::-moz-range-thumb {
-                width: 12px;
-                height: 18px;
-                background: $amber;
-                border: 1px solid $bg-deep;
-                cursor: grab;
-            }
-        }
-
-        .tk-dial-ticks {
-            display: flex;
-            justify-content: space-between;
-            font-size: 9px;
-            color: $ink-faint;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-        }
-    }
-
-    // ── Pipeline stepper ─────────────────────────────────────────
-    .tk-pipeline {
-        margin-top: 4px;
-    }
-
-    .tk-stages {
-        display: grid;
-        grid-template-columns: repeat(6, 1fr);
-        gap: 8px;
-        margin-bottom: 14px;
-
-        li {
-            display: flex;
-            align-items: baseline;
-            gap: 8px;
-            padding: 6px 8px;
-            background: rgba(255, 255, 255, 0.015);
-            border: 1px solid $line;
-            border-left: 2px solid $line-bold;
-            color: $ink-faint;
-            font-size: 9px;
-            font-weight: 700;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-            transition: all 0.18s ease;
-
-            .tk-stage-n {
-                font-family: 'Major Mono Display', monospace;
-                font-size: 14px;
-                color: $ink-ghost;
-                line-height: 1;
-            }
-
-            &.is-active {
-                background: rgba(244, 211, 94, 0.1);
-                border-color: $amber;
-                border-left-color: $amber;
-                color: $amber;
-                animation: tk-pulse 1.4s ease-in-out infinite;
-
-                .tk-stage-n {
-                    color: $amber-hot;
-                    text-shadow: 0 0 6px rgba(244, 211, 94, 0.6);
-                }
-            }
-
-            &.is-done {
-                color: $cyan;
-                border-left-color: $cyan;
-
-                .tk-stage-n { color: $cyan; }
-            }
-
-            &.is-failed {
-                color: $rust;
-                border-color: $rust;
-                border-left-color: $rust;
-                opacity: 0.55;
-
-                .tk-stage-n { color: $rust; }
-            }
-        }
-    }
-
-    // ── Progress bar ─────────────────────────────────────────────
-    .tk-progress {
-        margin: 12px 0;
-    }
-
-    .tk-progress-track {
-        position: relative;
-        height: 18px;
-        background:
-            repeating-linear-gradient(90deg, $bg-rail 0 4px, $bg-deep 4px 5px);
-        border: 1px solid $line-bold;
-        overflow: hidden;
-    }
-
-    .tk-progress-fill {
-        position: absolute;
-        inset: 0 auto 0 0;
-        width: 0%;
-        background:
-            linear-gradient(180deg, $amber-hot 0%, $amber 100%);
-        box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.45),
-            inset 0 -1px 0 rgba(0, 0, 0, 0.3),
-            0 0 14px rgba(244, 211, 94, 0.45);
-        transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-
-        // diagonal hatching texture
-        &::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background-image: repeating-linear-gradient(
-                45deg,
-                transparent 0 6px,
-                rgba(0, 0, 0, 0.12) 6px 8px
-            );
-            animation: tk-hatch 1.2s linear infinite;
-        }
-    }
-
-    .tk-progress-cursor {
-        position: absolute;
-        top: -3px;
-        bottom: -3px;
-        width: 2px;
-        background: $ink;
-        box-shadow: 0 0 6px rgba(255, 255, 255, 0.7);
-        transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        transform: translateX(-1px);
-    }
-
-    .tk-progress-meta {
-        display: grid;
-        grid-template-columns: 70px 1fr 80px;
-        gap: 12px;
-        align-items: center;
-        margin-top: 6px;
-        font-size: 11px;
-
-        .tk-progress-pct {
-            font-family: 'Major Mono Display', monospace;
-            font-size: 16px;
-            color: $amber;
-            font-variant-numeric: tabular-nums;
-            letter-spacing: 0.02em;
-        }
-
-        .tk-progress-msg {
-            color: $ink-dim;
-            font-style: italic;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .tk-progress-eta {
-            text-align: right;
-            color: $cyan;
-            font-variant-numeric: tabular-nums;
-            letter-spacing: 0.04em;
-        }
-    }
-
-    // ── Log ──────────────────────────────────────────────────────
-    .tk-log {
-        margin-top: 0;
-        max-height: 132px;
-        overflow-y: auto;
-        font-size: 11px;
-        background: rgba(0, 0, 0, 0.25);
-        border: 1px solid $line;
-        border-left: 2px solid $amber;
-        padding: 8px 10px;
-
-        &::-webkit-scrollbar { width: 6px; }
-        &::-webkit-scrollbar-thumb { background: $line-bold; }
-    }
-
-    .tk-log-row {
-        display: grid;
-        grid-template-columns: 60px 70px 1fr;
-        gap: 10px;
-        align-items: baseline;
-        padding: 2px 0;
-        line-height: 1.4;
-        animation: tk-log-in 0.25s ease-out both;
-
-        .tk-log-t {
-            color: $ink-faint;
-            font-variant-numeric: tabular-nums;
-            font-size: 10px;
-            letter-spacing: 0.04em;
-        }
-
-        .tk-log-tag {
-            font-weight: 800;
-            letter-spacing: 0.16em;
-            font-size: 10px;
-        }
-
-        .tk-log-m {
-            color: $ink-dim;
-            font-size: 11px;
-        }
-
-        &--system .tk-log-tag { color: $ink-dim; }
-        &--ok .tk-log-tag     { color: $cyan; }
-        &--warn .tk-log-tag   { color: $amber-hot; }
-        &--err  .tk-log-tag   { color: $rust; }
-        &--err  .tk-log-m     { color: $rust; }
-    }
-
-    // ── Footer ───────────────────────────────────────────────────
-    .tk-foot {
-        margin-top: 18px;
-        padding-top: 14px;
-        border-top: 1px solid $line;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-    }
-
-    .tk-foot-meta {
-        font-size: 10px;
-        letter-spacing: 0.18em;
         color: $ink-dim;
-        font-weight: 700;
-    }
-
-    .tk-blink {
-        color: $lime;
-        animation: tk-blink 1s steps(2, end) infinite;
-        margin-right: 4px;
-    }
-
-    .tk-foot-buttons {
-        display: flex;
-        gap: 10px;
-    }
-
-    .tk-btn {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        padding: 9px 18px;
-        border: 1px solid;
-        cursor: pointer;
-        transition: all 0.15s ease;
-
-        &--ghost {
-            background: transparent;
-            color: $ink-dim;
-            border-color: $line-bold;
-
-            &:hover {
-                color: $ink;
-                border-color: $ink-dim;
-                background: rgba(255, 255, 255, 0.04);
-            }
-        }
-
-        &--primary {
-            background: $amber;
-            color: $bg-deep;
-            border-color: $amber;
-            min-width: 200px;
-            box-shadow: 0 0 0 1px $bg-deep, inset 0 1px 0 rgba(255, 255, 255, 0.4);
-            position: relative;
-            font-weight: 800;
-
-            &:hover:not(:disabled) {
-                background: $amber-hot;
-                border-color: $amber-hot;
-                transform: translateY(-1px);
-                box-shadow:
-                    0 0 0 1px $bg-deep,
-                    0 4px 14px rgba(244, 211, 94, 0.45),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.4);
-            }
-
-            &:disabled {
-                background: $bg-card;
-                color: $ink-faint;
-                border-color: $line-bold;
-                cursor: not-allowed;
-                box-shadow: none;
-            }
-        }
-    }
-
-    // ── Capture quality hints ─────────────────────────────────────
-    .tk-hints {
-        margin-top: 4px;
-        padding: 10px 12px 8px;
-        background: rgba(0, 0, 0, 0.18);
-        border-left: 2px solid $amber;
-
-        .tk-hints-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            margin-bottom: 6px;
-        }
-
-        .tk-hints-label {
-            font-size: 9px;
-            letter-spacing: 0.22em;
-            color: $ink-faint;
-            font-weight: 700;
-        }
-
-        .tk-hints-summary {
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-
-            &[data-tone="good"] { color: $cyan; }
-            &[data-tone="warn"] { color: $amber-hot; }
-            &[data-tone="bad"]  { color: $rust; }
-        }
-
-        .tk-hints-list {
-            list-style: none;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-        }
-
-        .tk-hints-item {
-            display: grid;
-            grid-template-columns: 12px 1fr;
-            gap: 8px;
-            align-items: center;
-            font-size: 11px;
-            line-height: 1.4;
-        }
-
-        .tk-hints-dot {
-            width: 8px;
-            height: 8px;
-            display: inline-block;
-            background: $ink-faint;
-        }
-
-        .tk-hints-text {
-            color: $ink-dim;
-        }
-
-        .tk-hints-item--good {
-            .tk-hints-dot { background: $cyan; box-shadow: 0 0 6px rgba(95, 211, 233, 0.5); }
-            .tk-hints-text { color: $ink; }
-        }
-        .tk-hints-item--warn {
-            .tk-hints-dot { background: $amber-hot; box-shadow: 0 0 6px rgba(255, 170, 23, 0.5); }
-            .tk-hints-text { color: $ink; }
-        }
-        .tk-hints-item--bad {
-            .tk-hints-dot { background: $rust; box-shadow: 0 0 6px rgba(231, 111, 81, 0.5); }
-            .tk-hints-text { color: $rust; }
-        }
-    }
-
-    // ── Recent jobs list ──────────────────────────────────────────
-    .tk-rule--recent { margin-top: 22px; }
-
-    .tk-recent-list {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        max-height: 180px;
-        overflow-y: auto;
-
-        &::-webkit-scrollbar { width: 6px; }
-        &::-webkit-scrollbar-thumb { background: $line-bold; }
-    }
-
-    .tk-recent-item {
-        display: grid;
-        grid-template-columns: 70px 80px 1fr 160px 60px 26px 22px;
-        gap: 10px;
-        align-items: center;
-        padding: 6px 10px;
-        border: 1px solid transparent;
-        border-left: 2px solid $ink-ghost;
-        background: rgba(255, 255, 255, 0.015);
-        font-size: 11px;
-        transition: all 0.15s ease;
-
-        &:hover {
-            border-color: $line-bold;
-            border-left-color: $amber;
-            background: rgba(244, 211, 94, 0.05);
-        }
-
-        &[data-tone="fail"] {
-            border-left-color: $rust;
-            opacity: 0.55;
-        }
-
-        .tk-recent-stamp {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            color: $ink-faint;
-            letter-spacing: 0.04em;
-        }
-
-        .tk-recent-id {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            color: $cyan;
-            font-weight: 700;
-        }
-
-        .tk-recent-name {
-            color: $ink;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .tk-recent-meta {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 10px;
-            letter-spacing: 0.04em;
-            color: $ink-faint;
-            text-align: right;
-        }
-
-        .tk-recent-load {
-            background: none;
-            border: 1px solid $line-bold;
-            color: $amber;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 9px;
-            font-weight: 800;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-            padding: 4px 6px;
-            cursor: pointer;
-            transition: all 0.15s;
-
-            &:hover {
-                background: $amber;
-                color: $bg-deep;
-            }
-        }
-
-        .tk-recent-dl {
-            background: none;
-            border: 1px solid $line-bold;
-            color: $cyan;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            font-weight: 700;
-            width: 26px;
-            height: 26px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.15s;
-
-            &:hover {
-                background: $cyan;
-                color: $bg-deep;
-                border-color: $cyan;
-            }
-        }
-
-        .tk-recent-del {
-            background: none;
-            border: 1px solid transparent;
-            color: $ink-faint;
-            font-size: 14px;
-            line-height: 1;
-            width: 22px;
-            height: 22px;
-            cursor: pointer;
-            transition: all 0.15s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: inherit;
-
-            &:hover {
-                color: $rust;
-                border-color: $rust;
-            }
-        }
-    }
-
-    // ── Offline overlay ───────────────────────────────────────────
-    .tk-offline {
-        position: absolute;
-        inset: 0;
-        z-index: 10;
+        width: 20px;
+        height: 20px;
+        font-size: 14px;
+        line-height: 1;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(6, 11, 22, 0.88);
-        backdrop-filter: blur(4px);
-        animation: tk-frame-in 0.28s ease both;
+        flex-shrink: 0;
+        transition: color 0.12s, border-color 0.12s, background 0.12s;
+
+        &:hover { color: $rust; border-color: $rust; background: rgba(231, 111, 81, 0.08); }
+        &:active { transform: scale(0.9); }
+        &:focus-visible { outline: 2px solid $amber; outline-offset: 2px; }
     }
+}
 
-    .tk-offline-inner {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 12px;
-        padding: 32px 36px;
-        border: 1px solid $rust;
-        background: rgba(14, 27, 48, 0.95);
-        text-align: center;
-        max-width: 440px;
-    }
+// ── Parameters ─────────────────────────────────────────────────────────────────
+.tk-section--params .tk-step-body { gap: 14px; }
 
-    .tk-offline-icon {
-        font-size: 28px;
-        color: $rust;
-        line-height: 1;
-        text-shadow: 0 0 12px rgba(231, 111, 81, 0.7);
-    }
+.tk-param {
+    display: grid;
+    grid-template-columns: 140px 1fr 108px;
+    gap: 12px;
+    align-items: center;
 
-    .tk-offline-title {
-        font-size: 13px;
-        font-weight: 800;
-        letter-spacing: 0.2em;
-        color: $rust;
-    }
-
-    .tk-offline-desc {
-        font-size: 11px;
-        color: $ink-dim;
-        margin: 0;
-    }
-
-    .tk-offline-cmd {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 11px;
-        color: $cyan;
-        background: rgba(0, 0, 0, 0.4);
-        border: 1px solid $line-bold;
-        padding: 6px 12px;
-        letter-spacing: 0.04em;
-        user-select: all;
-    }
-
-    .tk-offline-url-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        width: 100%;
-
-        label {
-            font-size: 9px;
-            font-weight: 700;
-            letter-spacing: 0.18em;
-            color: $ink-faint;
-            white-space: nowrap;
-        }
-
-        .tk-offline-url {
-            flex: 1;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
-            color: $ink;
-            background: rgba(0, 0, 0, 0.35);
-            border: 1px solid $line-bold;
-            padding: 5px 8px;
-            outline: none;
-
-            &:focus { border-color: $amber; }
-        }
-    }
-
-    .tk-offline-retry {
-        margin-top: 4px;
-        min-width: 200px;
-    }
-
-    // ── Log header with raw-log toggle ────────────────────────────
-    .tk-log-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin: 14px 0 4px;
+    label {
         font-size: 10px;
         font-weight: 700;
-        letter-spacing: 0.14em;
+        letter-spacing: 0.18em;
         color: $ink-dim;
+        text-transform: uppercase;
     }
 
-    .tk-log-title {
-        flex: 1;
-    }
-
-    .tk-log-toggle {
-        background: none;
-        border: 1px solid $line-bold;
+    .tk-param-hint {
+        font-size: 10px;
         color: $ink-faint;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 9px;
+        font-style: italic;
+        letter-spacing: 0.04em;
+        transition: color 0.2s;
+    }
+
+    .tk-param-value {
+        text-align: right;
+        font-family: 'Major Mono Display', monospace;
+        font-size: 22px;
+        color: $amber;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+        user-select: none;
+    }
+}
+
+// ── Segmented control ──────────────────────────────────────────────────────────
+.tk-segmented {
+    display: flex;
+    border: 1px solid $line-bold;
+    height: 26px;
+
+    button {
+        flex: 1;
+        background: transparent;
+        border: none;
+        border-right: 1px solid $line;
+        color: $ink-dim;
+        font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.12em;
-        padding: 2px 8px;
-        cursor: pointer;
-        transition: color 0.12s, border-color 0.12s;
+        text-transform: uppercase;
+        padding: 0 8px;
+        transition: background 0.12s, color 0.12s;
+        white-space: nowrap;
 
-        &:hover {
-            color: $cyan;
-            border-color: $cyan;
+        &:last-child { border-right: none; }
+
+        &:hover:not(.is-active) {
+            background: rgba(244, 211, 94, 0.09);
+            color: $amber;
+        }
+
+        &:active:not(.is-active) { transform: scale(0.95); }
+
+        &.is-active {
+            background: $amber;
+            color: $bg-deep;
+            font-weight: 800;
+        }
+
+        &:focus-visible {
+            outline: 2px solid $amber;
+            outline-offset: -2px;
+        }
+    }
+}
+
+// ── Iterations slider ──────────────────────────────────────────────────────────
+.tk-dial {
+    position: relative;
+
+    input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 4px;
+        // --p is set by JS to reflect current position
+        background: linear-gradient(
+            90deg,
+            $amber 0%,
+            $amber var(--p, 45.5%),
+            $line-bold var(--p, 45.5%),
+            $line-bold 100%
+        );
+        border: 1px solid $line-bold;
+        outline: none;
+        cursor: pointer;
+        margin: 6px 0 10px;
+
+        &::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 10px;
+            height: 20px;
+            background: $amber;
+            border: 1px solid rgba(0, 0, 0, 0.4);
+            cursor: grab;
+            box-shadow: 0 0 0 2px rgba(244, 211, 94, 0.3);
+            transition: box-shadow 0.15s;
+
+            &:hover { box-shadow: 0 0 0 4px rgba(244, 211, 94, 0.25); }
+        }
+
+        &::-moz-range-thumb {
+            width: 10px;
+            height: 20px;
+            background: $amber;
+            border: 1px solid rgba(0, 0, 0, 0.4);
+            cursor: grab;
+            border-radius: 0;
+        }
+
+        &:focus-visible {
+            outline: 2px solid $amber;
+            outline-offset: 3px;
         }
     }
 
-    // ── Raw log panel ─────────────────────────────────────────────
-    .tk-rawlog {
-        margin-top: 8px;
-        border: 1px solid $line;
-        border-left: 2px solid $cyan;
-        background: rgba(0, 0, 0, 0.35);
-        max-height: 160px;
-        overflow: auto;
-        animation: tk-frame-in 0.2s ease both;
-
-        &::-webkit-scrollbar { width: 6px; }
-        &::-webkit-scrollbar-thumb { background: $line-bold; }
-    }
-
-    .tk-rawlog-pre {
-        margin: 0;
-        padding: 8px 10px;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 10px;
-        line-height: 1.5;
+    .tk-dial-ticks {
+        display: flex;
+        justify-content: space-between;
+        font-size: 9px;
         color: $ink-faint;
-        white-space: pre-wrap;
-        word-break: break-all;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        user-select: none;
+    }
+}
+
+// ── Pipeline stepper ───────────────────────────────────────────────────────────
+.tk-pipeline { margin-top: 4px; }
+
+.tk-stages {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+
+    li {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 6px 8px;
+        background: rgba(255, 255, 255, 0.012);
+        border: 1px solid $line;
+        border-left: 2px solid $line-bold;
+        color: $ink-faint;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        transition: color 0.22s ease, background 0.22s ease, border-color 0.22s ease;
+        will-change: color, background, border-color;
+        user-select: none;
+
+        .tk-stage-n {
+            font-family: 'Major Mono Display', monospace;
+            font-size: 14px;
+            color: $ink-ghost;
+            line-height: 1;
+            transition: color 0.22s ease, text-shadow 0.22s ease;
+        }
+
+        &.is-active {
+            background: rgba(244, 211, 94, 0.10);
+            border-color: $amber;
+            border-left-color: $amber;
+            color: $amber;
+            animation: tk-pulse 1.6s ease-in-out infinite;
+
+            .tk-stage-n {
+                color: $amber-hot;
+                text-shadow: 0 0 8px rgba(244, 211, 94, 0.7);
+            }
+        }
+
+        &.is-done {
+            color: $cyan;
+            border-left-color: $cyan;
+            background: rgba(95, 211, 233, 0.05);
+
+            .tk-stage-n { color: $cyan; }
+        }
+
+        &.is-failed {
+            color: $rust;
+            border-color: rgba(231, 111, 81, 0.4);
+            border-left-color: $rust;
+            opacity: 0.5;
+
+            .tk-stage-n { color: $rust; }
+        }
+    }
+}
+
+// ── Progress bar ───────────────────────────────────────────────────────────────
+.tk-progress { margin: 10px 0 6px; }
+
+.tk-progress-track {
+    position: relative;
+    height: 18px;
+    background: repeating-linear-gradient(90deg, $bg-rail 0 4px, $bg-deep 4px 5px);
+    border: 1px solid $line-bold;
+    overflow: hidden;
+}
+
+.tk-progress-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0%;
+    background: linear-gradient(180deg, $amber-hot 0%, $amber 100%);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.45),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+        0 0 14px rgba(244, 211, 94, 0.4);
+    transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s ease, box-shadow 0.4s ease;
+    will-change: width;
+
+    &::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image: repeating-linear-gradient(
+            45deg,
+            transparent 0 6px,
+            rgba(0, 0, 0, 0.1) 6px 8px
+        );
+        animation: tk-hatch 1.2s linear infinite;
+    }
+}
+
+.tk-progress-cursor {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: $ink;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+    transition: left 0.45s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+    transform: translateX(-1px);
+    will-change: left;
+}
+
+.tk-progress-meta {
+    display: grid;
+    grid-template-columns: 76px 1fr 88px;
+    gap: 12px;
+    align-items: center;
+    margin-top: 8px;
+    font-size: 11px;
+    user-select: none;
+
+    .tk-progress-pct {
+        font-family: 'Major Mono Display', monospace;
+        font-size: 16px;
+        color: $amber;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+        transition: color 0.4s ease;
     }
 
-    // ── Abort button ──────────────────────────────────────────────
-    .tk-btn--danger {
+    .tk-progress-msg {
+        color: $ink-dim;
+        font-style: italic;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .tk-progress-eta {
+        text-align: right;
+        color: $cyan;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.04em;
+    }
+}
+
+// ── Log ─────────────────────────────────────────────────────────────────────────
+.tk-log-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 14px 0 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: $ink-dim;
+    user-select: none;
+}
+
+.tk-log-title { flex: 1; }
+
+.tk-blink {
+    color: $lime;
+    animation: tk-blink 1s steps(2, end) infinite;
+}
+
+.tk-log-toggle {
+    background: none;
+    border: 1px solid $line-bold;
+    color: $ink-faint;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    padding: 2px 8px;
+    height: 20px;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+
+    &:hover { color: $cyan; border-color: $cyan; background: rgba(95, 211, 233, 0.06); }
+    &:active { transform: scale(0.95); }
+    &:focus-visible { outline: 2px solid $amber; outline-offset: 2px; }
+}
+
+.tk-log {
+    max-height: 130px;
+    overflow-y: auto;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid $line;
+    border-left: 2px solid $amber;
+    padding: 8px 10px;
+    scrollbar-width: thin;
+    scrollbar-color: $line-bold $bg-rail;
+
+    &::-webkit-scrollbar       { width: 5px; }
+    &::-webkit-scrollbar-track  { background: $bg-rail; }
+    &::-webkit-scrollbar-thumb  { background: $line-bold; }
+}
+
+.tk-log-row {
+    display: grid;
+    grid-template-columns: 60px 70px 1fr;
+    gap: 10px;
+    align-items: baseline;
+    padding: 2px 0;
+    line-height: 1.4;
+    animation: tk-log-in 0.22s ease-out both;
+
+    .tk-log-t   { color: $ink-faint; font-variant-numeric: tabular-nums; font-size: 10px; letter-spacing: 0.04em; }
+    .tk-log-tag { font-weight: 800; letter-spacing: 0.16em; font-size: 10px; }
+    .tk-log-m   { color: $ink-dim; font-size: 11px; }
+
+    &--system .tk-log-tag { color: $ink-dim; }
+    &--ok     .tk-log-tag { color: $cyan; }
+    &--warn   .tk-log-tag { color: $amber-hot; }
+    &--err    .tk-log-tag { color: $rust; }
+    &--err    .tk-log-m   { color: $rust; opacity: 0.85; }
+}
+
+// ── Raw log panel ───────────────────────────────────────────────────────────────
+.tk-rawlog {
+    margin-top: 8px;
+    border: 1px solid $line;
+    border-left: 2px solid $cyan;
+    background: rgba(0, 0, 0, 0.38);
+    max-height: 160px;
+    overflow: auto;
+    animation: tk-frame-in 0.2s ease both;
+    scrollbar-width: thin;
+    scrollbar-color: $line-bold $bg-rail;
+
+    &::-webkit-scrollbar       { width: 5px; }
+    &::-webkit-scrollbar-track  { background: $bg-rail; }
+    &::-webkit-scrollbar-thumb  { background: $line-bold; }
+}
+
+.tk-rawlog-pre {
+    margin: 0;
+    padding: 8px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    line-height: 1.55;
+    color: rgba(140, 170, 195, 0.9);
+    white-space: pre-wrap;
+    word-break: break-all;
+    tab-size: 4;
+}
+
+// ── Capture quality hints ───────────────────────────────────────────────────────
+.tk-hints {
+    padding: 10px 12px 8px;
+    background: rgba(0, 0, 0, 0.18);
+    border-left: 2px solid $amber;
+    transition: border-color 0.3s;
+
+    .tk-hints-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 6px;
+    }
+
+    .tk-hints-label {
+        font-size: 9px;
+        letter-spacing: 0.22em;
+        color: $ink-faint;
+        font-weight: 700;
+        user-select: none;
+    }
+
+    .tk-hints-summary {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        transition: color 0.3s;
+        user-select: none;
+
+        &[data-tone="good"] { color: $cyan; }
+        &[data-tone="warn"] { color: $amber-hot; }
+        &[data-tone="bad"]  { color: $rust; }
+    }
+
+    .tk-hints-list {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .tk-hints-item {
+        display: grid;
+        grid-template-columns: 12px 1fr;
+        gap: 8px;
+        align-items: center;
+        font-size: 11px;
+        line-height: 1.4;
+        padding: 2px 0;
+        transition: opacity 0.2s;
+    }
+
+    .tk-hints-dot {
+        width: 7px;
+        height: 7px;
+        display: inline-block;
+        background: $ink-faint;
+        flex-shrink: 0;
+        border-radius: 0;
+        margin-top: 1px;
+    }
+
+    .tk-hints-text { color: $ink-dim; }
+
+    .tk-hints-item--good {
+        .tk-hints-dot { background: $cyan; box-shadow: 0 0 5px rgba(95, 211, 233, 0.5); }
+        .tk-hints-text { color: $ink; }
+    }
+    .tk-hints-item--warn {
+        .tk-hints-dot { background: $amber-hot; box-shadow: 0 0 5px rgba(255, 170, 23, 0.5); }
+        .tk-hints-text { color: $ink; }
+    }
+    .tk-hints-item--bad {
+        .tk-hints-dot { background: $rust; box-shadow: 0 0 5px rgba(231, 111, 81, 0.5); }
+        .tk-hints-text { color: $rust-bright; }
+    }
+}
+
+// ── Recent jobs list ────────────────────────────────────────────────────────────
+.tk-rule--recent { margin-top: 22px; }
+
+.tk-recent-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 188px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: $line-bold $bg-rail;
+
+    &::-webkit-scrollbar       { width: 5px; }
+    &::-webkit-scrollbar-track  { background: $bg-rail; }
+    &::-webkit-scrollbar-thumb  { background: $line-bold; }
+}
+
+.tk-recent-item {
+    display: grid;
+    grid-template-columns: 70px 80px 1fr 155px 58px 26px 22px;
+    gap: 10px;
+    align-items: center;
+    padding: 6px 10px;
+    border: 1px solid transparent;
+    border-left: 2px solid $ink-ghost;
+    background: rgba(255, 255, 255, 0.012);
+    font-size: 11px;
+    transition: border-color 0.15s ease, border-left-color 0.15s ease, background 0.15s ease;
+
+    &:hover {
+        border-color: $line-bold;
+        border-left-color: $amber;
+        background: rgba(244, 211, 94, 0.04);
+
+        .tk-recent-load { border-color: $amber; }
+    }
+
+    &[data-tone="fail"] {
+        border-left-color: $rust;
+        opacity: 0.5;
+        pointer-events: none;
+    }
+
+    .tk-recent-stamp {
+        font-size: 10px;
+        color: $ink-faint;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+        user-select: none;
+    }
+
+    .tk-recent-id {
+        font-size: 10px;
+        color: $cyan;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        user-select: none;
+    }
+
+    .tk-recent-name {
+        color: $ink;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+    }
+
+    .tk-recent-meta {
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        color: $ink-faint;
+        text-align: right;
+        white-space: nowrap;
+        user-select: none;
+    }
+
+    // Shared base for the three action buttons
+    %recent-btn {
+        background: none;
+        border: 1px solid $line-bold;
+        font-family: 'JetBrains Mono', monospace;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.12s, color 0.12s, border-color 0.12s;
+
+        &:active { transform: scale(0.9); }
+        &:focus-visible { outline: 2px solid $amber; outline-offset: 2px; }
+    }
+
+    .tk-recent-load {
+        @extend %recent-btn;
+        color: $amber;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        padding: 0 6px;
+        height: 26px;
+
+        &:hover { background: $amber; color: $bg-deep; border-color: $amber; }
+    }
+
+    .tk-recent-dl {
+        @extend %recent-btn;
+        color: $cyan;
+        font-size: 14px;
+        font-weight: 700;
+        width: 26px;
+        height: 26px;
+
+        &:hover { background: $cyan; color: $bg-deep; border-color: $cyan; }
+    }
+
+    .tk-recent-del {
+        @extend %recent-btn;
+        color: $ink-faint;
+        font-size: 14px;
+        width: 22px;
+        height: 22px;
+        border-color: transparent;
+
+        &:hover { color: $rust; border-color: rgba(231, 111, 81, 0.4); background: rgba(231, 111, 81, 0.06); }
+    }
+}
+
+// ── Offline overlay ─────────────────────────────────────────────────────────────
+.tk-offline {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(4, 8, 18, 0.9);
+    backdrop-filter: blur(6px);
+    animation: tk-frame-in 0.3s ease both;
+}
+
+.tk-offline-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 36px 40px 32px;
+    border: 1px solid rgba(231, 111, 81, 0.6);
+    background: rgba(12, 22, 40, 0.97);
+    text-align: center;
+    max-width: 460px;
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.5),
+        0 0 40px rgba(231, 111, 81, 0.08),
+        0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.tk-offline-icon {
+    font-size: 30px;
+    color: $rust;
+    line-height: 1;
+    text-shadow: 0 0 16px rgba(231, 111, 81, 0.65);
+    animation: tk-blink 2.4s ease-in-out infinite;
+    user-select: none;
+}
+
+.tk-offline-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.24em;
+    color: $rust;
+    user-select: none;
+}
+
+.tk-offline-desc {
+    font-size: 11px;
+    color: $ink-dim;
+    margin: 0;
+    user-select: none;
+}
+
+.tk-offline-cmd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: $cyan;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid $line-bold;
+    padding: 7px 14px;
+    letter-spacing: 0.03em;
+    user-select: all;
+    -webkit-user-select: all;
+    cursor: text;
+    transition: border-color 0.15s;
+
+    &:hover { border-color: $cyan; }
+}
+
+.tk-offline-url-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+
+    label {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        color: $ink-faint;
+        white-space: nowrap;
+        user-select: none;
+    }
+
+    .tk-offline-url {
+        flex: 1;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        color: $ink;
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid $line-bold;
+        padding: 6px 10px;
+        outline: none;
+        transition: border-color 0.15s;
+        min-width: 0;
+
+        &:focus { border-color: $amber; }
+        &:focus-visible { border-color: $amber; }
+    }
+}
+
+.tk-offline-retry {
+    margin-top: 4px;
+    min-width: 210px;
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: wait;
+    }
+}
+
+// ── Footer ──────────────────────────────────────────────────────────────────────
+.tk-foot {
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 1px solid $line;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    position: sticky;
+    bottom: 0;
+    // Give the sticky footer the same dark bg as the frame
+    background: linear-gradient(0deg, rgba(8, 16, 30, 1) 0%, rgba(8, 16, 30, 0.92) 100%);
+    margin-left: -36px;
+    margin-right: -36px;
+    padding-left: 36px;
+    padding-right: 36px;
+    padding-bottom: 20px;
+    margin-bottom: -22px;
+    z-index: 5;
+}
+
+.tk-foot-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: $ink-dim;
+    font-weight: 700;
+    user-select: none;
+}
+
+.tk-foot-buttons { display: flex; gap: 10px; align-items: center; }
+
+// ── Buttons ─────────────────────────────────────────────────────────────────────
+.tk-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 9px 20px;
+    border: 1px solid;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s, box-shadow 0.15s;
+    white-space: nowrap;
+
+    &:active:not(:disabled) { transform: translateY(1px); }
+    &:focus-visible { outline: 2px solid $amber; outline-offset: 3px; }
+
+    &--ghost {
+        background: transparent;
+        color: $ink-dim;
+        border-color: $line-bold;
+
+        &:hover {
+            color: $ink;
+            border-color: $ink-dim;
+            background: rgba(255, 255, 255, 0.04);
+        }
+    }
+
+    &--primary {
+        background: $amber;
+        color: $bg-deep;
+        border-color: $amber;
+        min-width: 190px;
+        font-weight: 800;
+        box-shadow: 0 0 0 1px $bg-deep, inset 0 1px 0 rgba(255, 255, 255, 0.4);
+
+        &:hover:not(:disabled) {
+            background: $amber-hot;
+            border-color: $amber-hot;
+            transform: translateY(-1px);
+            box-shadow:
+                0 0 0 1px $bg-deep,
+                0 6px 18px rgba(244, 211, 94, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.4);
+        }
+
+        &:disabled {
+            background: $bg-card;
+            color: $ink-faint;
+            border-color: $line-bold;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+    }
+
+    &--danger {
         background: transparent;
         color: $rust;
-        border-color: $rust;
-        min-width: 140px;
+        border-color: rgba(231, 111, 81, 0.5);
+        min-width: 130px;
         font-weight: 800;
 
         &:hover {
             background: $rust;
             color: $ink;
+            border-color: $rust;
             transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(231, 111, 81, 0.35);
         }
     }
-
-    // ── State-driven adjustments ─────────────────────────────────
-    .tk-console[data-state="running"] {
-        .tk-section:not(.tk-section--params) {
-            opacity: 0.55;
-            pointer-events: none;
-        }
-    }
-
-    .tk-console[data-state="failed"]    .tk-corner { color: $rust; }
-    .tk-console[data-state="done"]      .tk-corner { color: $cyan; }
-    .tk-console[data-state="cancelled"] .tk-corner { color: $amber-hot; }
 }
 
-// ── Keyframes ────────────────────────────────────────────────────
+// ── State-driven overrides ──────────────────────────────────────────────────────
+
+// Running: lock all input sections, dim them
+.tk-console[data-state="queued"],
+.tk-console[data-state="running"] {
+    .tk-section {
+        opacity: 0.38;
+        pointer-events: none;
+    }
+}
+
+// Hide progress cursor when idle (nothing is in progress)
+.tk-console[data-state="idle"] .tk-progress-cursor { opacity: 0; }
+
+// Done: cyan corners + cyan progress
+.tk-console[data-state="done"] {
+    .tk-corner {
+        color: $cyan;
+        text-shadow: 0 0 8px rgba(95, 211, 233, 0.6);
+    }
+    .tk-progress-fill {
+        background: linear-gradient(180deg, $cyan-bright 0%, $cyan 100%);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 0 14px rgba(95, 211, 233, 0.4);
+    }
+    .tk-progress-pct { color: $cyan; }
+}
+
+// Failed: rust everywhere
+.tk-console[data-state="failed"] {
+    .tk-corner {
+        color: $rust;
+        text-shadow: 0 0 8px rgba(231, 111, 81, 0.6);
+    }
+    .tk-progress-fill {
+        background: linear-gradient(180deg, $rust-bright 0%, $rust 100%);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 0 14px rgba(231, 111, 81, 0.4);
+    }
+    .tk-progress-pct { color: $rust; }
+}
+
+// Cancelled: amber-hot hint
+.tk-console[data-state="cancelled"] {
+    .tk-corner { color: $amber-hot; }
+    .tk-progress-fill {
+        background: $amber-hot;
+        opacity: 0.75;
+        box-shadow: none;
+    }
+}
+
+// ── Keyframes ────────────────────────────────────────────────────────────────────
 @keyframes tk-frame-in {
-    from {
-        opacity: 0;
-        transform: translateY(8px) scale(0.985);
-        filter: blur(4px);
-    }
-    to {
-        opacity: 1;
-        transform: none;
-        filter: blur(0);
-    }
+    from { opacity: 0; transform: translateY(10px) scale(0.982); filter: blur(5px); }
+    to   { opacity: 1; transform: none; filter: blur(0); }
 }
 
 @keyframes tk-blink {
     0%, 100% { opacity: 1; }
-    50%      { opacity: 0; }
+    50%       { opacity: 0; }
 }
 
 @keyframes tk-pulse {
     0%, 100% { box-shadow: inset 0 0 0 0 rgba(244, 211, 94, 0); }
-    50%      { box-shadow: inset 3px 0 0 0 rgba(244, 211, 94, 0.5); }
+    50%       { box-shadow: inset 3px 0 0 0 rgba(244, 211, 94, 0.55); }
 }
 
 @keyframes tk-hatch {
@@ -1155,6 +1317,6 @@ $lime:       #b5f200;
 }
 
 @keyframes tk-log-in {
-    from { opacity: 0; transform: translateX(-6px); }
+    from { opacity: 0; transform: translateX(-8px); }
     to   { opacity: 1; transform: none; }
 }
