@@ -1,18 +1,27 @@
-// Cinematic editorial empty state.
-// Lives over the 3D viewport. Pointer-events on the backdrop are off so the
-// canvas + menus stay reachable; only the interactive bits intercept.
-// Big Instrument Serif italic statement, asymmetric composition, warm sodium
-// glow that follows the cursor.
+// Cinematic editorial empty state — modernised pass.
+// Original cinematic dark aesthetic preserved (warm sodium glow over cinematic
+// black, italic editorial serif headline, asymmetric layout). Refinements:
+// fonts actually imported, contrast bumped on dim text, rounded card corners,
+// smoother spring easing on hover, focus rings, font-size inheritance fix.
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@300;400;500;600;700&display=swap');
 
 $ems-ink:        #f5efe3;          // aged paper
-$ems-dim:        rgba(245, 239, 227, 0.55);
-$ems-faint:      rgba(245, 239, 227, 0.22);
+$ems-dim:        rgba(245, 239, 227, 0.72);  // ↑ 0.55 → 0.72 for legibility
+$ems-mid:        rgba(245, 239, 227, 0.55);  // intermediate (was the old dim)
+$ems-faint:      rgba(245, 239, 227, 0.40);  // ↑ 0.22 → 0.40
 $ems-line:       rgba(245, 239, 227, 0.13);
+$ems-line-hot:   rgba(255, 138, 61, 0.22);
 $ems-deep:       #0a0807;          // warm cinematic black
 $ems-deep-2:     #110d0a;
 $ems-accent:     #ff8a3d;          // sodium street-lamp amber
 $ems-accent-2:   #f4a259;
 $ems-gold:       #d4b063;
+
+$ems-easing:     cubic-bezier(0.2, 0.7, 0.3, 1);
+$ems-spring:     cubic-bezier(0.34, 1.36, 0.64, 1);
+$ems-radius:     10px;
+$ems-radius-sm:  6px;
 
 #empty-state {
     position: fixed;
@@ -51,10 +60,23 @@ $ems-gold:       #d4b063;
         padding: 0;
     }
 
+    // PCUI applies font-size: 12px to all .pcui-element descendants which
+    // breaks inheritance on inline elements. Force them to inherit again so
+    // the headline / italic accents render at their declared size.
+    span, em, b, i, strong {
+        font-size: inherit;
+        line-height: inherit;
+    }
+
     em {
         font-family: 'Instrument Serif', 'Times New Roman', serif;
         font-style: italic;
         font-weight: 400;
+    }
+
+    *:focus-visible {
+        outline: 2px solid $ems-accent;
+        outline-offset: 3px;
     }
 }
 
@@ -122,10 +144,11 @@ $ems-gold:       #d4b063;
 #empty-state .ems-mark {
     color: $ems-accent;
     font-weight: 800;
+    letter-spacing: 0.2em;
 }
 
-#empty-state .ems-dim {
-    color: $ems-dim;
+#empty-state .ems-corner .ems-dim {
+    color: $ems-mid;
     font-weight: 500;
 }
 
@@ -147,19 +170,27 @@ $ems-gold:       #d4b063;
     right: 28px;
     pointer-events: auto;
     display: flex;
-    align-items: baseline;
-    gap: 8px;
+    align-items: center;
+    gap: 10px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: $ems-ink;
+    padding: 8px 14px;
+    border: 1px solid $ems-line;
+    border-radius: 999px;
+    background: rgba(245, 239, 227, 0.025);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     opacity: 0;
     animation: ems-fade-up 0.6s 0.9s ease-out both;
-    transition: color 0.2s;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
 
     &:hover {
         color: $ems-accent;
+        border-color: rgba(255, 138, 61, 0.45);
+        background: rgba(255, 138, 61, 0.06);
     }
 }
 
@@ -182,9 +213,13 @@ $ems-gold:       #d4b063;
 }
 
 #empty-state .ems-counter {
-    display: flex;
-    align-items: baseline;
-    gap: 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 14px 6px 10px;
+    background: rgba(255, 138, 61, 0.08);
+    border: 1px solid $ems-line-hot;
+    border-radius: 999px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
     letter-spacing: 0.22em;
@@ -192,6 +227,14 @@ $ems-gold:       #d4b063;
     color: $ems-accent;
     opacity: 0;
     animation: ems-fade-up 0.6s 0.15s ease-out both;
+    align-self: flex-start;
+}
+
+#empty-state .ems-counter::before {
+    content: '✦';
+    font-size: 12px;
+    line-height: 1;
+    text-transform: none;
 }
 
 #empty-state .ems-counter-n {
@@ -199,9 +242,11 @@ $ems-gold:       #d4b063;
 }
 
 #empty-state .ems-counter-d {
-    color: $ems-faint;
+    color: $ems-mid;
     font-weight: 500;
     font-style: italic;
+    text-transform: none;
+    letter-spacing: 0.01em;
 }
 
 // ── Headline ────────────────────────────────────────────────
@@ -233,8 +278,8 @@ $ems-gold:       #d4b063;
 }
 
 #empty-state .ems-lede {
-    max-width: 48ch;
-    font-size: 15px;
+    max-width: 50ch;
+    font-size: clamp(15px, 1.1vw, 17px);
     color: $ems-dim;
     letter-spacing: 0.005em;
     line-height: 1.6;
@@ -261,28 +306,36 @@ $ems-gold:       #d4b063;
     display: grid;
     grid-template-rows: auto auto auto 1fr auto;
     gap: clamp(6px, 1vh, 10px);
-    padding: clamp(16px, 2.4vh, 24px) clamp(20px, 2.6vw, 28px) clamp(14px, 2vh, 22px);
+    padding: clamp(20px, 2.8vh, 26px) clamp(22px, 2.8vw, 30px) clamp(18px, 2.4vh, 24px);
     border: 1px solid $ems-line;
-    background: rgba(245, 239, 227, 0.02);
-    backdrop-filter: blur(2px);
-    transition: all 0.28s cubic-bezier(0.2, 0.7, 0.3, 1);
+    background: rgba(245, 239, 227, 0.025);
+    backdrop-filter: blur(6px) saturate(1.05);
+    -webkit-backdrop-filter: blur(6px) saturate(1.05);
+    border-radius: $ems-radius;
+    transition: transform 0.4s $ems-spring, border-color 0.3s $ems-easing,
+                background 0.3s $ems-easing, box-shadow 0.3s $ems-easing;
     overflow: hidden;
     cursor: pointer;
-    min-height: clamp(170px, 28vh, 250px);
+    min-height: clamp(180px, 28vh, 250px);
+    box-shadow: inset 0 1px 0 0 rgba(245, 239, 227, 0.04);
 
     &::before {
         content: '';
         position: absolute;
         inset: 0;
         background: radial-gradient(110% 100% at 0% 0%, rgba(255, 138, 61, 0) 0%, transparent 70%);
-        transition: background 0.28s ease;
+        transition: background 0.35s $ems-easing;
         pointer-events: none;
+        border-radius: inherit;
     }
 
     &:hover {
-        border-color: rgba(255, 138, 61, 0.55);
-        background: rgba(255, 138, 61, 0.04);
+        border-color: rgba(255, 138, 61, 0.45);
+        background: rgba(255, 138, 61, 0.045);
         transform: translateY(-3px);
+        box-shadow:
+            inset 0 1px 0 0 rgba(255, 138, 61, 0.16),
+            0 24px 60px -30px rgba(255, 138, 61, 0.35);
 
         &::before {
             background: radial-gradient(110% 100% at 0% 0%, rgba(255, 138, 61, 0.13) 0%, transparent 70%);
@@ -296,6 +349,13 @@ $ems-gold:       #d4b063;
             transform: translateX(6px);
         }
     }
+
+    &:focus-visible {
+        outline: 2px solid $ems-accent;
+        outline-offset: 3px;
+    }
+
+    &:active { transform: translateY(-1px); }
 }
 
 #empty-state .ems-card-no {
@@ -328,10 +388,11 @@ $ems-gold:       #d4b063;
 }
 
 #empty-state .ems-card-body {
-    font-size: 13px;
+    font-size: 14px;
     color: $ems-dim;
-    line-height: 1.55;
-    max-width: 36ch;
+    line-height: 1.6;
+    max-width: 38ch;
+    letter-spacing: 0.003em;
 }
 
 #empty-state .ems-card-meta {
@@ -381,31 +442,50 @@ $ems-gold:       #d4b063;
 }
 
 #empty-state .ems-card--feature {
-    background: linear-gradient(135deg, rgba(255, 138, 61, 0.04) 0%, rgba(245, 239, 227, 0.025) 60%);
-    border-color: rgba(255, 138, 61, 0.22);
+    background:
+        radial-gradient(80% 60% at 100% 0%, rgba(255, 138, 61, 0.10) 0%, transparent 60%),
+        linear-gradient(135deg, rgba(255, 138, 61, 0.05) 0%, rgba(245, 239, 227, 0.025) 60%);
+    border-color: $ems-line-hot;
+    box-shadow:
+        inset 0 1px 0 0 rgba(255, 138, 61, 0.10),
+        0 30px 80px -40px rgba(255, 138, 61, 0.35);
 
     .ems-card-title em {
         color: $ems-accent;
     }
+
+    &:hover {
+        border-color: rgba(255, 138, 61, 0.55);
+        box-shadow:
+            inset 0 1px 0 0 rgba(255, 138, 61, 0.22),
+            0 30px 80px -25px rgba(255, 138, 61, 0.55);
+    }
 }
 
 #empty-state .ems-foot {
-    font-size: 13px;
+    font-size: 14px;
     color: $ems-dim;
     letter-spacing: 0.005em;
     font-style: italic;
+    font-family: 'Instrument Serif', 'Times New Roman', serif;
     margin-top: -6px;
     opacity: 0;
     animation: ems-fade-up 0.7s 1.1s ease-out both;
 
     .ems-dim {
+        display: inline-block;
+        margin-right: 10px;
+        padding: 4px 11px;
         font-family: 'JetBrains Mono', monospace;
         font-size: 9px;
         letter-spacing: 0.22em;
         text-transform: uppercase;
-        color: $ems-faint;
+        color: $ems-mid;
+        background: rgba(245, 239, 227, 0.03);
+        border: 1px solid $ems-line;
+        border-radius: 999px;
         font-style: normal;
-        margin-right: 6px;
+        vertical-align: middle;
     }
 }
 
