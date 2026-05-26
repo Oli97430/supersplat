@@ -152,12 +152,38 @@ $VenvPy  = Join-Path $Venv "Scripts\python.exe"
 $VenvPip = Join-Path $Venv "Scripts\pip.exe"
 Log "venv ready: $VenvPy"
 
-# Upgrade pip — use plain redirect (NOT Tee-Object) to avoid Unicode/encoding
-# pipeline mishaps that can silently abort the script on long pip output.
-Log "Upgrading pip / wheel / setuptools"
-& $VenvPy -m pip install --upgrade pip wheel setuptools *>> $LogPath
-$rc = $LASTEXITCODE
-Log "pip upgrade exit code: $rc"
+# Wrapper that runs pip via Start-Process so its output streams live to the
+# console (user sees download progress) instead of being silently captured.
+# Avoids the Tee-Object / NativeCommandError pipeline pitfalls of PS 5.1.
+function Invoke-Pip {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Label,
+        [Parameter(Mandatory = $true)] [string[]]$Args
+    )
+    Write-Host ""
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host "  $Label" -ForegroundColor Cyan
+    Write-Host "================================================" -ForegroundColor Cyan
+    Log "[BEGIN] $Label"
+    $proc = Start-Process -FilePath $VenvPip `
+        -ArgumentList $Args `
+        -NoNewWindow -Wait -PassThru
+    $rc = if ($proc) { $proc.ExitCode } else { -1 }
+    Log "[END]   $Label  (exit $rc)"
+    return $rc
+}
+
+# Upgrade pip first (using $VenvPy directly since $VenvPip will be replaced)
+Write-Host ""
+Write-Host "================================================" -ForegroundColor Cyan
+Write-Host "  Upgrading pip / wheel / setuptools" -ForegroundColor Cyan
+Write-Host "================================================" -ForegroundColor Cyan
+Log "[BEGIN] pip upgrade"
+$proc = Start-Process -FilePath $VenvPy `
+    -ArgumentList @('-m', 'pip', 'install', '--upgrade', 'pip', 'wheel', 'setuptools') `
+    -NoNewWindow -Wait -PassThru
+$rc = if ($proc) { $proc.ExitCode } else { -1 }
+Log "[END]   pip upgrade  (exit $rc)"
 if ($rc -ne 0) { throw "pip upgrade failed (exit $rc)" }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -179,13 +205,12 @@ if (Test-Path $TorchSitePath) {
 Log "Torch probe -> $(if ($TorchInstalled) { $TorchInstalled } else { 'not found' })"
 
 if (-not $TorchInstalled) {
-    Log "Installing PyTorch 2.1.2 + CUDA 11.8 (this can take several minutes -- ~2.7 GB)"
-    & $VenvPip install --no-cache-dir `
-        torch==2.1.2+cu118 `
-        torchvision==0.16.2+cu118 `
-        --index-url https://download.pytorch.org/whl/cu118 *>> $LogPath
-    $rc = $LASTEXITCODE
-    Log "PyTorch install exit code: $rc"
+    $rc = Invoke-Pip -Label "Installing PyTorch 2.1.2 + CUDA 11.8  (~2.7 GB, 3-6 min)" -Args @(
+        'install', '--no-cache-dir',
+        'torch==2.1.2+cu118',
+        'torchvision==0.16.2+cu118',
+        '--index-url', 'https://download.pytorch.org/whl/cu118'
+    )
     if ($rc -ne 0) { throw "PyTorch install failed (exit $rc)" }
 } else {
     Log "PyTorch already installed: $TorchInstalled"
@@ -203,10 +228,9 @@ if (Test-Path $NSInitPath) {
 Log "nerfstudio probe -> $(if ($NSInstalled) { 'present' } else { 'not found' })"
 
 if (-not $NSInstalled) {
-    Log "Installing nerfstudio (this will pull tinycudann etc., ~2 GB)"
-    & $VenvPip install --no-cache-dir nerfstudio==1.1.4 *>> $LogPath
-    $rc = $LASTEXITCODE
-    Log "nerfstudio install exit code: $rc"
+    $rc = Invoke-Pip -Label "Installing nerfstudio  (~2 GB, 8-15 min -- DO NOT close this window)" -Args @(
+        'install', '--no-cache-dir', 'nerfstudio==1.1.4'
+    )
     if ($rc -ne 0) { throw "nerfstudio install failed (exit $rc)" }
 } else {
     Log "nerfstudio already installed: $NSInstalled"
@@ -215,16 +239,15 @@ if (-not $NSInstalled) {
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. FastAPI + utilities
 # ─────────────────────────────────────────────────────────────────────────────
-Log "Installing FastAPI server deps"
-& $VenvPip install --no-cache-dir `
-    "fastapi==0.115.0" `
-    "uvicorn[standard]==0.30.6" `
-    "sse-starlette==2.1.3" `
-    "python-multipart==0.0.9" `
-    "pillow" `
-    "numpy" *>> $LogPath
-$rc = $LASTEXITCODE
-Log "FastAPI deps install exit code: $rc"
+$rc = Invoke-Pip -Label "Installing FastAPI server deps  (~50 MB, 30 s)" -Args @(
+    'install', '--no-cache-dir',
+    'fastapi==0.115.0',
+    'uvicorn[standard]==0.30.6',
+    'sse-starlette==2.1.3',
+    'python-multipart==0.0.9',
+    'pillow',
+    'numpy'
+)
 if ($rc -ne 0) { throw "FastAPI deps install failed (exit $rc)" }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,3 +321,17 @@ set "PATH=$ToolsBin;$Venv\Scripts;%PATH%"
 
 Log "=== install-deps COMPLETE ==="
 Log "Run $AppDir\OneClickSPLAT.cmd to start."
+
+Write-Host ""
+Write-Host "================================================" -ForegroundColor Green
+Write-Host "                                                " -ForegroundColor Green
+Write-Host "         DONE -- ALL DEPENDENCIES INSTALLED     " -ForegroundColor Green
+Write-Host "                                                " -ForegroundColor Green
+Write-Host "  You can now close this window and launch      " -ForegroundColor Green
+Write-Host "  OneClick SPLAT from the desktop / Start menu. " -ForegroundColor Green
+Write-Host "                                                " -ForegroundColor Green
+Write-Host "================================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "This window will close automatically in 10 seconds..." -ForegroundColor Gray
+Start-Sleep -Seconds 10
+exit 0
