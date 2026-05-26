@@ -614,7 +614,7 @@ $lime:       #b5f200;
 
     // ── Log ──────────────────────────────────────────────────────
     .tk-log {
-        margin-top: 12px;
+        margin-top: 0;
         max-height: 132px;
         overflow-y: auto;
         font-size: 11px;
@@ -836,7 +836,7 @@ $lime:       #b5f200;
 
     .tk-recent-item {
         display: grid;
-        grid-template-columns: 70px 80px 1fr 160px 70px 22px;
+        grid-template-columns: 70px 80px 1fr 160px 60px 26px 22px;
         gap: 10px;
         align-items: center;
         padding: 6px 10px;
@@ -905,6 +905,28 @@ $lime:       #b5f200;
             }
         }
 
+        .tk-recent-dl {
+            background: none;
+            border: 1px solid $line-bold;
+            color: $cyan;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 700;
+            width: 26px;
+            height: 26px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+
+            &:hover {
+                background: $cyan;
+                color: $bg-deep;
+                border-color: $cyan;
+            }
+        }
+
         .tk-recent-del {
             background: none;
             border: 1px solid transparent;
@@ -925,6 +947,154 @@ $lime:       #b5f200;
                 border-color: $rust;
             }
         }
+    }
+
+    // ── Offline overlay ───────────────────────────────────────────
+    .tk-offline {
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(6, 11, 22, 0.88);
+        backdrop-filter: blur(4px);
+        animation: tk-frame-in 0.28s ease both;
+    }
+
+    .tk-offline-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 32px 36px;
+        border: 1px solid $rust;
+        background: rgba(14, 27, 48, 0.95);
+        text-align: center;
+        max-width: 440px;
+    }
+
+    .tk-offline-icon {
+        font-size: 28px;
+        color: $rust;
+        line-height: 1;
+        text-shadow: 0 0 12px rgba(231, 111, 81, 0.7);
+    }
+
+    .tk-offline-title {
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.2em;
+        color: $rust;
+    }
+
+    .tk-offline-desc {
+        font-size: 11px;
+        color: $ink-dim;
+        margin: 0;
+    }
+
+    .tk-offline-cmd {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        color: $cyan;
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid $line-bold;
+        padding: 6px 12px;
+        letter-spacing: 0.04em;
+        user-select: all;
+    }
+
+    .tk-offline-url-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+
+        label {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            color: $ink-faint;
+            white-space: nowrap;
+        }
+
+        .tk-offline-url {
+            flex: 1;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: $ink;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid $line-bold;
+            padding: 5px 8px;
+            outline: none;
+
+            &:focus { border-color: $amber; }
+        }
+    }
+
+    .tk-offline-retry {
+        margin-top: 4px;
+        min-width: 200px;
+    }
+
+    // ── Log header with raw-log toggle ────────────────────────────
+    .tk-log-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 14px 0 4px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        color: $ink-dim;
+    }
+
+    .tk-log-title {
+        flex: 1;
+    }
+
+    .tk-log-toggle {
+        background: none;
+        border: 1px solid $line-bold;
+        color: $ink-faint;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        padding: 2px 8px;
+        cursor: pointer;
+        transition: color 0.12s, border-color 0.12s;
+
+        &:hover {
+            color: $cyan;
+            border-color: $cyan;
+        }
+    }
+
+    // ── Raw log panel ─────────────────────────────────────────────
+    .tk-rawlog {
+        margin-top: 8px;
+        border: 1px solid $line;
+        border-left: 2px solid $cyan;
+        background: rgba(0, 0, 0, 0.35);
+        max-height: 160px;
+        overflow: auto;
+        animation: tk-frame-in 0.2s ease both;
+
+        &::-webkit-scrollbar { width: 6px; }
+        &::-webkit-scrollbar-thumb { background: $line-bold; }
+    }
+
+    .tk-rawlog-pre {
+        margin: 0;
+        padding: 8px 10px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 10px;
+        line-height: 1.5;
+        color: $ink-faint;
+        white-space: pre-wrap;
+        word-break: break-all;
     }
 
     // ── Abort button ──────────────────────────────────────────────

@@ -2,7 +2,17 @@ import { Container, Element } from '@playcanvas/pcui';
 
 import { Events } from '../events';
 
-const BACKEND_URL = 'http://127.0.0.1:8000';
+// ── Configuration ────────────────────────────────────────────────────────────
+const LS_KEY_URL = 'supersplat-backend-url';
+const DEFAULT_URL = 'http://127.0.0.1:8000';
+const APP_VERSION = '2.27';
+
+const getBackendUrl = () => localStorage.getItem(LS_KEY_URL) || DEFAULT_URL;
+const setBackendUrl = (u: string) => {
+    if (u) localStorage.setItem(LS_KEY_URL, u.replace(/\/$/, ''));
+    else localStorage.removeItem(LS_KEY_URL);
+};
+
 const VIDEO_EXTS = ['.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v'];
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png'];
 
@@ -11,32 +21,24 @@ const isImageFile = (name: string) => IMAGE_EXTS.some(e => name.toLowerCase().en
 
 const STAGE_ORDER = ['preparing', 'extracting', 'colmap', 'training', 'exporting', 'done'];
 const STAGE_LABELS: Record<string, string> = {
-    queued: 'QUEUED',
-    preparing: 'PREPARE',
-    extracting: 'EXTRACT',
-    colmap: 'COLMAP',
-    training: 'TRAIN',
-    exporting: 'EXPORT',
-    done: 'DONE',
-    failed: 'FAIL',
-    cancelled: 'STOP'
+    queued: 'QUEUED', preparing: 'PREPARE', extracting: 'EXTRACT',
+    colmap: 'COLMAP', training: 'TRAIN', exporting: 'EXPORT',
+    done: 'DONE', failed: 'FAIL', cancelled: 'STOP'
 };
 
+// ── Formatters ───────────────────────────────────────────────────────────────
 const pad2 = (n: number) => String(n).padStart(2, '0');
-
 const fmtBytes = (n: number) => {
     if (n < 1024) return `${n} B`;
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
     if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 };
-
 const fmtElapsed = (sec: number) => {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `t+ ${pad2(m)}:${pad2(s)}`;
 };
-
 const fmtAgo = (epoch: number) => {
     const sec = Date.now() / 1000 - epoch;
     if (sec < 60) return `${Math.floor(sec)}s ago`;
@@ -45,12 +47,34 @@ const fmtAgo = (epoch: number) => {
     return `${Math.floor(sec / 86400)}d ago`;
 };
 
-// Static HTML template — no user-supplied interpolation goes here. Parsed via
-// DOMParser instead of innerHTML for safety.
+// ── Auto-FPS: aim for ~150 frames from a video duration ──────────────────────
+const autoFps = (durationSec: number): number => {
+    const target = 150;
+    const raw = target / Math.max(durationSec, 1);
+    const options = [1, 2, 3, 5];
+    return options.reduce((prev, cur) => Math.abs(cur - raw) < Math.abs(prev - raw) ? cur : prev);
+};
+
+// ── Static HTML template — NO user-interpolation, parsed via DOMParser ───────
 const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle">
 
     <div class="tk-grid"></div>
     <div class="tk-noise"></div>
+
+    <!-- Offline overlay (shown when backend is unreachable) -->
+    <div class="tk-offline" hidden data-tk-offline>
+        <div class="tk-offline-inner">
+            <span class="tk-offline-icon">&#9888;</span>
+            <span class="tk-offline-title">BACKEND OFFLINE</span>
+            <p class="tk-offline-desc">Start the training server, then retry:</p>
+            <code class="tk-offline-cmd">cd server &amp;&amp; uvicorn main:app --reload</code>
+            <div class="tk-offline-url-row">
+                <label>SERVER URL</label>
+                <input class="tk-offline-url" data-tk-url type="text" spellcheck="false">
+            </div>
+            <button class="tk-btn tk-btn--ghost tk-offline-retry" data-tk-retry type="button">&#8635; RETRY CONNECTION</button>
+        </div>
+    </div>
 
     <div class="tk-frame">
         <span class="tk-corner tk-tl">+</span>
@@ -67,8 +91,8 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
             <dl class="tk-meta">
                 <div><dt>JOB</dt><dd data-tk-jobid>&mdash;</dd></div>
                 <div><dt>UTC</dt><dd data-tk-utc>&mdash;</dd></div>
-                <div><dt>GPU</dt><dd>RTX&middot;3090 / 24G</dd></div>
-                <div><dt>VER</dt><dd>SS&middot;2.26 / GS&middot;1.4</dd></div>
+                <div><dt>GPU</dt><dd data-tk-gpu>detecting&hellip;</dd></div>
+                <div><dt>VER</dt><dd data-tk-ver>SS&middot;? / GS&middot;1.4</dd></div>
             </dl>
         </header>
 
@@ -85,7 +109,7 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                     <span class="tk-drop-corner tk-br">&#9496;</span>
                     <span class="tk-drop-icon">&#9636;</span>
                     <span class="tk-drop-text">SELECT VIDEO OR PHOTOS</span>
-                    <span class="tk-drop-sub">.mp4 .mov .mkv  &middot;  .jpg .png</span>
+                    <span class="tk-drop-sub">.mp4 .mov .mkv &middot; .jpg .png</span>
                 </button>
                 <div class="tk-source" hidden data-tk-source>
                     <span class="tk-source-kind" data-tk-kind>&mdash;</span>
@@ -94,7 +118,6 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                     <button class="tk-source-clear" data-tk-clear type="button">&times;</button>
                 </div>
 
-                <!-- Capture quality hints (populated from media metadata) -->
                 <div class="tk-hints" hidden data-tk-hints>
                     <div class="tk-hints-row">
                         <span class="tk-hints-label">CAPTURE&middot;ANALYSIS</span>
@@ -113,8 +136,9 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                 <div class="tk-param">
                     <label>COLMAP&middot;MATCHER</label>
                     <div class="tk-segmented" role="radiogroup" data-tk-matcher>
-                        <button data-v="sequential" class="is-active" type="button">&#9655; SEQUENTIAL</button>
-                        <button data-v="exhaustive" type="button">&#8862; EXHAUSTIVE</button>
+                        <button data-v="sequential" class="is-active" type="button">&#9655; SEQ</button>
+                        <button data-v="vocab_tree" type="button">&#9670; VOCAB</button>
+                        <button data-v="exhaustive" type="button">&#8862; EXHAUS</button>
                     </div>
                     <span class="tk-param-hint" data-tk-matcher-hint>frame-ordered &middot; fastest</span>
                 </div>
@@ -167,7 +191,15 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                 </div>
             </div>
 
+            <div class="tk-log-header">
+                <span class="tk-blink">&#9646;</span>
+                <span class="tk-log-title">EVENT LOG</span>
+                <button class="tk-log-toggle" data-tk-rawlog-toggle type="button">[ VIEW RAW LOG ]</button>
+            </div>
             <div class="tk-log" data-tk-log></div>
+            <div class="tk-rawlog" hidden data-tk-rawlog>
+                <pre class="tk-rawlog-pre" data-tk-rawlog-content></pre>
+            </div>
         </section>
 
         <div class="tk-rule tk-rule--recent" hidden data-tk-rule-recent><span>RECENT JOBS</span></div>
@@ -178,7 +210,8 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
 
         <footer class="tk-foot">
             <div class="tk-foot-meta">
-                <span class="tk-blink">&#9646;</span> READY
+                <span class="tk-blink">&#9646;</span>
+                <span data-tk-status>READY</span>
             </div>
             <div class="tk-foot-buttons">
                 <button class="tk-btn tk-btn--ghost" data-tk-cancel type="button">esc &middot; CLOSE</button>
@@ -188,13 +221,12 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                 </button>
             </div>
         </footer>
-
     </div>
 </div></body>`;
 
-// ── Inspect a video file to get duration, resolution, fps estimate ─────────
-const probeVideo = (file: File): Promise<{ duration: number; width: number; height: number; sizeMB: number } | null> => {
-    return new Promise((resolve) => {
+// ── Video probing ─────────────────────────────────────────────────────────────
+const probeVideo = (file: File): Promise<{ duration: number; width: number; height: number; sizeMB: number } | null> =>
+    new Promise((resolve) => {
         const url = URL.createObjectURL(file);
         const v = document.createElement('video');
         v.preload = 'metadata';
@@ -206,48 +238,43 @@ const probeVideo = (file: File): Promise<{ duration: number; width: number; heig
             URL.revokeObjectURL(url);
             resolve(result);
         };
-        v.onloadedmetadata = () => {
-            finish({
-                duration: v.duration,
-                width: v.videoWidth,
-                height: v.videoHeight,
-                sizeMB: file.size / 1024 / 1024
-            });
-        };
+        v.onloadedmetadata = () => finish({
+            duration: v.duration, width: v.videoWidth,
+            height: v.videoHeight, sizeMB: file.size / 1024 / 1024
+        });
         v.onerror = () => finish(null);
         setTimeout(() => finish(null), 5000);
         v.src = url;
     });
-};
 
+// ── Capture-quality hints ─────────────────────────────────────────────────────
 type Hint = { tone: 'good' | 'warn' | 'bad'; text: string };
 
-const buildVideoHints = (m: { duration: number; width: number; height: number; sizeMB: number }, fps: number): { summary: string; hints: Hint[] } => {
+const buildVideoHints = (
+    m: { duration: number; width: number; height: number; sizeMB: number },
+    fps: number
+): { summary: string; hints: Hint[] } => {
     const hints: Hint[] = [];
     const minSide = Math.min(m.width, m.height);
     const frames = Math.round(m.duration * fps);
 
-    if (m.duration < 20) hints.push({ tone: 'bad', text: `Duration ${m.duration.toFixed(0)}s — too short, aim for 60-90s` });
-    else if (m.duration < 45) hints.push({ tone: 'warn', text: `Duration ${m.duration.toFixed(0)}s — acceptable for small objects` });
-    else if (m.duration > 180) hints.push({ tone: 'warn', text: `Duration ${m.duration.toFixed(0)}s — long, training will crawl` });
+    if (m.duration < 20) hints.push({ tone: 'bad', text: `Duration ${m.duration.toFixed(0)}s — too short, aim for 60–90s` });
+    else if (m.duration < 45) hints.push({ tone: 'warn', text: `Duration ${m.duration.toFixed(0)}s — ok for small objects` });
+    else if (m.duration > 180) hints.push({ tone: 'warn', text: `Duration ${m.duration.toFixed(0)}s — long, consider 1 fps` });
     else hints.push({ tone: 'good', text: `Duration ${m.duration.toFixed(0)}s — good range` });
 
     if (minSide < 720) hints.push({ tone: 'bad', text: `Resolution ${m.width}×${m.height} — too low, use 1080p+` });
-    else if (minSide < 1080) hints.push({ tone: 'warn', text: `Resolution ${m.width}×${m.height} — 720p works but 1080p is better` });
+    else if (minSide < 1080) hints.push({ tone: 'warn', text: `Resolution ${m.width}×${m.height} — 720p works, 1080p is better` });
     else hints.push({ tone: 'good', text: `Resolution ${m.width}×${m.height} — good` });
 
     if (frames < 30) hints.push({ tone: 'bad', text: `Will extract ${frames} frames — too few, raise fps or duration` });
-    else if (frames < 80) hints.push({ tone: 'warn', text: `Will extract ${frames} frames — workable for a small object` });
-    else if (frames > 500) hints.push({ tone: 'warn', text: `Will extract ${frames} frames — many, consider 1 fps to halve` });
+    else if (frames < 80) hints.push({ tone: 'warn', text: `Will extract ${frames} frames — workable for small objects` });
+    else if (frames > 500) hints.push({ tone: 'warn', text: `Will extract ${frames} frames — many, consider 1 fps` });
     else hints.push({ tone: 'good', text: `Will extract ${frames} frames — sweet spot for COLMAP` });
 
-    const goodCount = hints.filter(h => h.tone === 'good').length;
     const badCount = hints.filter(h => h.tone === 'bad').length;
-    let summary: string;
-    if (badCount > 0) summary = 'risks detected';
-    else if (goodCount === hints.length) summary = 'looks great';
-    else summary = 'acceptable';
-
+    const goodCount = hints.filter(h => h.tone === 'good').length;
+    const summary = badCount > 0 ? 'risks detected' : goodCount === hints.length ? 'looks great' : 'acceptable';
     return { summary, hints };
 };
 
@@ -261,68 +288,75 @@ const buildPhotoHints = (count: number, totalBytes: number): { summary: string; 
     else if (count > 400) hints.push({ tone: 'warn', text: `${count} photos — many, training will be slow` });
     else hints.push({ tone: 'good', text: `${count} photos — good count` });
 
-    if (avgMB < 0.4) hints.push({ tone: 'warn', text: `${avgMB.toFixed(1)} MB/image avg — low resolution likely` });
-    else hints.push({ tone: 'good', text: `${avgMB.toFixed(1)} MB/image avg — good resolution` });
+    if (avgMB < 0.4) hints.push({ tone: 'warn', text: `${avgMB.toFixed(1)} MB/image — low resolution likely` });
+    else hints.push({ tone: 'good', text: `${avgMB.toFixed(1)} MB/image — good resolution` });
 
-    const goodCount = hints.filter(h => h.tone === 'good').length;
     const badCount = hints.filter(h => h.tone === 'bad').length;
+    const goodCount = hints.filter(h => h.tone === 'good').length;
     const summary = badCount > 0 ? 'risks detected' : goodCount === hints.length ? 'looks great' : 'acceptable';
     return { summary, hints };
 };
 
 
+// ── Component ─────────────────────────────────────────────────────────────────
 class TrainPopup extends Container {
     show: () => Promise<void>;
     hide: () => void;
     destroy: () => void;
 
     constructor(events: Events, args = {}) {
-        args = {
-            id: 'train-popup',
-            hidden: true,
-            tabIndex: -1,
-            ...args
-        };
-
+        args = { id: 'train-popup', hidden: true, tabIndex: -1, ...args };
         super(args);
 
         const doc = new DOMParser().parseFromString(TEMPLATE, 'text/html');
         const consoleEl = doc.querySelector('.tk-console') as HTMLElement;
         this.append(new Element({ dom: consoleEl }));
 
-        const q = <T extends HTMLElement = HTMLElement>(s: string) => consoleEl.querySelector(s) as T;
+        const q  = <T extends HTMLElement = HTMLElement>(s: string) => consoleEl.querySelector(s) as T;
         const qa = <T extends HTMLElement = HTMLElement>(s: string) => Array.from(consoleEl.querySelectorAll(s)) as T[];
 
-        const pickBtn = q<HTMLButtonElement>('[data-tk-pick]');
-        const sourceRow = q('[data-tk-source]');
-        const sourceKind = q('[data-tk-kind]');
-        const sourceName = q('[data-tk-name]');
-        const sourceBytes = q('[data-tk-bytes]');
-        const clearBtn = q<HTMLButtonElement>('[data-tk-clear]');
-        const hintsBox = q('[data-tk-hints]');
-        const hintsSummary = q('[data-tk-hints-summary]');
-        const hintsList = q<HTMLUListElement>('[data-tk-hints-list]');
-        const itersSlider = q<HTMLInputElement>('[data-tk-iters]');
-        const itersOut = q('[data-tk-iters-out]');
-        const matcherWrap = q('[data-tk-matcher]');
-        const matcherHint = q('[data-tk-matcher-hint]');
-        const fpsWrap = q('[data-tk-fps]');
-        const fpsHint = q('[data-tk-fps-hint]');
-        const stages = qa<HTMLLIElement>('[data-tk-stages] li');
-        const fill = q<HTMLDivElement>('[data-tk-fill]');
-        const cursor = q<HTMLDivElement>('[data-tk-cursor]');
-        const pct = q('[data-tk-pct]');
-        const msg = q('[data-tk-msg]');
-        const eta = q('[data-tk-eta]');
-        const logEl = q('[data-tk-log]');
-        const recentRule = q('[data-tk-rule-recent]');
-        const recentBox = q('[data-tk-recent]');
-        const recentList = q<HTMLUListElement>('[data-tk-recent-list]');
-        const startBtn = q<HTMLButtonElement>('[data-tk-start]');
-        const abortBtn = q<HTMLButtonElement>('[data-tk-abort]');
-        const cancelBtn = q<HTMLButtonElement>('[data-tk-cancel]');
-        const utcEl = q('[data-tk-utc]');
-        const jobidEl = q('[data-tk-jobid]');
+        // ── DOM refs ────────────────────────────────────────────────
+        const offlineBox      = q('[data-tk-offline]');
+        const urlInput        = q<HTMLInputElement>('[data-tk-url]');
+        const retryBtn        = q<HTMLButtonElement>('[data-tk-retry]');
+        const pickBtn         = q<HTMLButtonElement>('[data-tk-pick]');
+        const sourceRow       = q('[data-tk-source]');
+        const sourceKind      = q('[data-tk-kind]');
+        const sourceName      = q('[data-tk-name]');
+        const sourceBytes     = q('[data-tk-bytes]');
+        const clearBtn        = q<HTMLButtonElement>('[data-tk-clear]');
+        const hintsBox        = q('[data-tk-hints]');
+        const hintsSummary    = q('[data-tk-hints-summary]');
+        const hintsList       = q<HTMLUListElement>('[data-tk-hints-list]');
+        const itersSlider     = q<HTMLInputElement>('[data-tk-iters]');
+        const itersOut        = q('[data-tk-iters-out]');
+        const matcherWrap     = q('[data-tk-matcher]');
+        const matcherHint     = q('[data-tk-matcher-hint]');
+        const fpsWrap         = q('[data-tk-fps]');
+        const fpsHint         = q('[data-tk-fps-hint]');
+        const stages          = qa<HTMLLIElement>('[data-tk-stages] li');
+        const fill            = q<HTMLDivElement>('[data-tk-fill]');
+        const cursor          = q<HTMLDivElement>('[data-tk-cursor]');
+        const pct             = q('[data-tk-pct]');
+        const msg             = q('[data-tk-msg]');
+        const eta             = q('[data-tk-eta]');
+        const logEl           = q('[data-tk-log]');
+        const rawlogToggleBtn = q<HTMLButtonElement>('[data-tk-rawlog-toggle]');
+        const rawlogBox       = q('[data-tk-rawlog]');
+        const rawlogPre       = q('[data-tk-rawlog-content]');
+        const recentRule      = q('[data-tk-rule-recent]');
+        const recentBox       = q('[data-tk-recent]');
+        const recentList      = q<HTMLUListElement>('[data-tk-recent-list]');
+        const startBtn        = q<HTMLButtonElement>('[data-tk-start]');
+        const abortBtn        = q<HTMLButtonElement>('[data-tk-abort]');
+        const cancelBtn       = q<HTMLButtonElement>('[data-tk-cancel]');
+        const utcEl           = q('[data-tk-utc]');
+        const jobidEl         = q('[data-tk-jobid]');
+        const gpuEl           = q('[data-tk-gpu]');
+        const verEl           = q('[data-tk-ver]');
+        const statusEl        = q('[data-tk-status]');
+
+        verEl.textContent = `SS·${APP_VERSION} / GS·1.4`;
 
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -331,17 +365,17 @@ class TrainPopup extends Container {
         fileInput.style.display = 'none';
         consoleEl.appendChild(fileInput);
 
+        // ── State ───────────────────────────────────────────────────
         let pickedFiles: File[] = [];
         let currentMatcher = 'sequential';
         let currentFps = 2;
         let startedAt = 0;
         let activeJob: string | null = null;
         let videoMeta: { duration: number; width: number; height: number; sizeMB: number } | null = null;
+        let rawlogPollId: ReturnType<typeof setInterval> | null = null;
+        let rawlogVisible = false;
 
-        const setState = (state: 'idle' | 'queued' | 'running' | 'done' | 'failed' | 'cancelled') => {
-            consoleEl.dataset.state = state;
-        };
-
+        // ── UTC clock ───────────────────────────────────────────────
         const updateUTC = () => {
             const d = new Date();
             utcEl.textContent = `${d.toISOString().slice(11, 19)}Z`;
@@ -349,6 +383,55 @@ class TrainPopup extends Container {
         updateUTC();
         const utcTimer = setInterval(updateUTC, 1000);
 
+        // ── Backend connectivity ────────────────────────────────────
+        const checkBackend = async (): Promise<boolean> => {
+            try {
+                urlInput.value = getBackendUrl();
+                const r = await fetch(`${getBackendUrl()}/`, { signal: AbortSignal.timeout(4000) });
+                if (r.ok) {
+                    offlineBox.setAttribute('hidden', '');
+                    return true;
+                }
+            } catch { /* fall through */ }
+            offlineBox.removeAttribute('hidden');
+            urlInput.value = getBackendUrl();
+            return false;
+        };
+
+        retryBtn.addEventListener('click', async () => {
+            const newUrl = urlInput.value.trim();
+            if (newUrl) setBackendUrl(newUrl);
+            await checkBackend();
+        });
+
+        // ── GPU info ────────────────────────────────────────────────
+        const loadGpuInfo = async () => {
+            try {
+                const r = await fetch(`${getBackendUrl()}/gpu`, { signal: AbortSignal.timeout(5000) });
+                if (r.ok) {
+                    const info = await r.json();
+                    gpuEl.textContent = info.label || 'no GPU';
+                    gpuEl.title = info.name || '';
+                    if (info.free_gb != null) {
+                        gpuEl.textContent += ` (${info.free_gb}G free)`;
+                    }
+                }
+            } catch { /* backend offline, ignore */ }
+        };
+
+        // ── System notifications ────────────────────────────────────
+        const maybeRequestNotificationPermission = () => {
+            if ('Notification' in window && Notification.permission === 'default') {
+                void Notification.requestPermission();
+            }
+        };
+        const notify = (title: string, body: string) => {
+            if ('Notification' in window && Notification.permission === 'granted') {
+                try { new Notification(title, { body, icon: '/favicon.ico' }); } catch { /* ignore */ }
+            }
+        };
+
+        // ── Log panel ───────────────────────────────────────────────
         const appendLog = (tag: string, message: string, tone: 'system' | 'ok' | 'warn' | 'err' = 'system') => {
             const elapsed = startedAt ? (Date.now() - startedAt) / 1000 : 0;
             const row = document.createElement('div');
@@ -361,6 +444,40 @@ class TrainPopup extends Container {
             while (logEl.children.length > 60) logEl.removeChild(logEl.lastChild!);
         };
 
+        // ── Raw log viewer ──────────────────────────────────────────
+        const startRawLogPoll = (jobId: string) => {
+            if (rawlogPollId !== null) return;
+            rawlogPollId = setInterval(async () => {
+                try {
+                    const r = await fetch(`${getBackendUrl()}/jobs/${jobId}/log`);
+                    if (r.ok) {
+                        const text = await r.text();
+                        rawlogPre.textContent = text;
+                        if (rawlogVisible) rawlogPre.scrollTop = rawlogPre.scrollHeight;
+                    }
+                } catch { /* ignore */ }
+            }, 2000);
+        };
+        const stopRawLogPoll = () => {
+            if (rawlogPollId !== null) {
+                clearInterval(rawlogPollId);
+                rawlogPollId = null;
+            }
+        };
+
+        rawlogToggleBtn.addEventListener('click', () => {
+            rawlogVisible = !rawlogVisible;
+            if (rawlogVisible) {
+                rawlogBox.removeAttribute('hidden');
+                rawlogToggleBtn.textContent = '[ HIDE RAW LOG ]';
+                if (rawlogPre.textContent) rawlogPre.scrollTop = rawlogPre.scrollHeight;
+            } else {
+                rawlogBox.setAttribute('hidden', '');
+                rawlogToggleBtn.textContent = '[ VIEW RAW LOG ]';
+            }
+        });
+
+        // ── Progress ────────────────────────────────────────────────
         const setProgress = (overall: number, stage: string, message: string) => {
             const p = Math.max(0, Math.min(1, overall || 0));
             const w = (p * 100).toFixed(1);
@@ -370,7 +487,6 @@ class TrainPopup extends Container {
             msg.textContent = message || '';
             const elapsed = startedAt ? (Date.now() - startedAt) / 1000 : 0;
             eta.textContent = fmtElapsed(elapsed);
-
             stages.forEach((li) => {
                 const ls = li.dataset.stage!;
                 li.classList.remove('is-active', 'is-done', 'is-failed');
@@ -381,13 +497,18 @@ class TrainPopup extends Container {
             if (stage === 'failed' || stage === 'cancelled') stages.forEach(li => li.classList.add('is-failed'));
         };
 
+        const setState = (state: 'idle' | 'queued' | 'running' | 'done' | 'failed' | 'cancelled') => {
+            consoleEl.dataset.state = state;
+        };
+
+        // ── Segmented control ───────────────────────────────────────
         const setSegment = (wrap: HTMLElement, value: string) => {
             wrap.querySelectorAll('button').forEach((b) => {
                 b.classList.toggle('is-active', (b as HTMLButtonElement).dataset.v === value);
             });
         };
 
-        // ── Hints ────────────────────────────────────────────────────────
+        // ── Hints ───────────────────────────────────────────────────
         const renderHints = (summary: string, hints: Hint[]) => {
             hintsSummary.textContent = summary;
             hintsSummary.dataset.tone = hints.some(h => h.tone === 'bad') ? 'bad' :
@@ -409,7 +530,7 @@ class TrainPopup extends Container {
                 const frames = Math.round(videoMeta.duration * currentFps);
                 fpsHint.textContent = `video → ~${frames} frames at ${currentFps} fps`;
             } else {
-                fpsHint.textContent = `video → frames sampling rate`;
+                fpsHint.textContent = 'video → frame sampling rate';
             }
         };
 
@@ -424,6 +545,10 @@ class TrainPopup extends Container {
             if (hasVideo) {
                 videoMeta = await probeVideo(pickedFiles[0]);
                 if (videoMeta) {
+                    // Auto-select the best FPS
+                    const suggested = autoFps(videoMeta.duration);
+                    currentFps = suggested;
+                    setSegment(fpsWrap, String(currentFps));
                     const { summary, hints } = buildVideoHints(videoMeta, currentFps);
                     renderHints(summary, hints);
                 }
@@ -440,7 +565,7 @@ class TrainPopup extends Container {
             if (pickedFiles.length === 0) {
                 sourceRow.setAttribute('hidden', '');
                 startBtn.disabled = true;
-                refreshHints();
+                void refreshHints();
                 return;
             }
             const hasVideo = pickedFiles.some(f => isVideoFile(f.name));
@@ -458,15 +583,25 @@ class TrainPopup extends Container {
                 sourceKind.textContent = `STILLS · ${pickedFiles.length}`;
                 sourceKind.setAttribute('data-tone', 'amber');
                 sourceName.textContent = pickedFiles[0].name;
-                setSegment(matcherWrap, 'exhaustive');
-                currentMatcher = 'exhaustive';
-                matcherHint.textContent = 'unordered photos · robust';
+                setSegment(matcherWrap, 'vocab_tree');
+                currentMatcher = 'vocab_tree';
+                matcherHint.textContent = 'unordered · vocab tree · robust';
             }
             startBtn.disabled = false;
-            refreshHints();
+            void refreshHints();
         };
 
-        // ── Recent jobs ──────────────────────────────────────────────────
+        // ── Recent jobs ─────────────────────────────────────────────
+        const downloadPly = (jobId: string, name: string) => {
+            const a = document.createElement('a');
+            a.href = `${getBackendUrl()}/jobs/${jobId}/splat.ply`;
+            a.download = `${name}.ply`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        };
+
         const renderRecent = (jobs: any[]) => {
             const usable = jobs.filter(j => j.has_ply);
             while (recentList.firstChild) recentList.removeChild(recentList.firstChild);
@@ -493,53 +628,53 @@ class TrainPopup extends Container {
 
                 const loadBtn = document.createElement('button'); loadBtn.className = 'tk-recent-load'; loadBtn.type = 'button';
                 loadBtn.textContent = 'load →';
-                loadBtn.onclick = (ev) => {
-                    ev.stopPropagation();
-                    void loadJobIntoEditor(j.id, j.name);
-                };
+                loadBtn.onclick = (ev) => { ev.stopPropagation(); void loadJobIntoEditor(j.id, j.name); };
+
+                const dlBtn = document.createElement('button'); dlBtn.className = 'tk-recent-dl'; dlBtn.type = 'button';
+                dlBtn.title = 'Save .ply to disk';
+                dlBtn.textContent = '↓';
+                dlBtn.onclick = (ev) => { ev.stopPropagation(); downloadPly(j.id, j.name); };
 
                 const delBtn = document.createElement('button'); delBtn.className = 'tk-recent-del'; delBtn.type = 'button';
                 delBtn.textContent = '×';
-                delBtn.title = 'Delete this job';
+                delBtn.title = 'Delete job';
                 delBtn.onclick = async (ev) => {
                     ev.stopPropagation();
-                    await fetch(`${BACKEND_URL}/jobs/${j.id}`, { method: 'DELETE' });
+                    await fetch(`${getBackendUrl()}/jobs/${j.id}`, { method: 'DELETE' });
                     await refreshRecent();
                 };
 
-                li.append(stamp, id, name, meta, loadBtn, delBtn);
+                li.append(stamp, id, name, meta, loadBtn, dlBtn, delBtn);
                 recentList.appendChild(li);
             });
         };
 
         const refreshRecent = async () => {
             try {
-                const r = await fetch(`${BACKEND_URL}/jobs`);
+                const r = await fetch(`${getBackendUrl()}/jobs`);
                 if (!r.ok) return;
-                const jobs = await r.json();
-                renderRecent(jobs);
+                renderRecent(await r.json());
             } catch {
-                // backend offline; quietly hide
                 recentBox.setAttribute('hidden', '');
                 recentRule.setAttribute('hidden', '');
             }
         };
 
-        // ── Backend interactions ─────────────────────────────────────────
+        // ── Backend I/O ─────────────────────────────────────────────
         const submit = async (): Promise<string> => {
             const fd = new FormData();
             for (const f of pickedFiles) fd.append('files', f, f.name);
             fd.append('matcher', currentMatcher);
             fd.append('max_iters', itersSlider.value);
             fd.append('extract_fps', String(currentFps));
-            const r = await fetch(`${BACKEND_URL}/jobs`, { method: 'POST', body: fd });
+            const r = await fetch(`${getBackendUrl()}/jobs`, { method: 'POST', body: fd });
             if (!r.ok) throw new Error(`upload ${r.status}: ${await r.text()}`);
             const j = await r.json();
             return j.id as string;
         };
 
         const subscribe = (jobId: string) => new Promise<void>((resolve, reject) => {
-            const src = new EventSource(`${BACKEND_URL}/jobs/${jobId}/stream`);
+            const src = new EventSource(`${getBackendUrl()}/jobs/${jobId}/stream`);
             let lastStage = '';
             src.addEventListener('status', (ev) => {
                 const s = JSON.parse((ev as MessageEvent).data);
@@ -557,7 +692,7 @@ class TrainPopup extends Container {
         });
 
         const fetchPlyAsFile = async (jobId: string): Promise<File> => {
-            const url = `${BACKEND_URL}/jobs/${jobId}/splat.ply`;
+            const url = `${getBackendUrl()}/jobs/${jobId}/splat.ply`;
             const resp = await fetch(url, { mode: 'cors', credentials: 'omit' });
             if (!resp.ok) throw new Error(`fetch PLY ${resp.status}`);
             const total = Number(resp.headers.get('content-length') || 0);
@@ -565,7 +700,6 @@ class TrainPopup extends Container {
             const chunks: Uint8Array[] = [];
             let received = 0;
             if (reader) {
-                // eslint-disable-next-line no-constant-condition
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
@@ -580,9 +714,8 @@ class TrainPopup extends Container {
                     }
                 }
             }
-            const blob = new Blob(chunks, { type: 'application/octet-stream' });
-            const filename = `train-${jobId}.ply`;
-            return new File([blob], filename, { type: 'application/octet-stream' });
+            const blob = new Blob(chunks as BlobPart[], { type: 'application/octet-stream' });
+            return new File([blob], `train-${jobId}.ply`, { type: 'application/octet-stream' });
         };
 
         const loadJobIntoEditor = async (jobId: string, name: string) => {
@@ -600,43 +733,67 @@ class TrainPopup extends Container {
         const cancelJob = async (jobId: string) => {
             try {
                 appendLog('ABORT', 'requesting cancel…', 'warn');
-                await fetch(`${BACKEND_URL}/jobs/${jobId}/cancel`, { method: 'POST' });
+                await fetch(`${getBackendUrl()}/jobs/${jobId}/cancel`, { method: 'POST' });
             } catch (e: any) {
                 appendLog('ERROR', e?.message ?? String(e), 'err');
             }
         };
 
-        // ── Wiring ───────────────────────────────────────────────────────
+        // ── File picking / drag-and-drop ────────────────────────────
+        const acceptFiles = (files: File[]) => {
+            const hasVideo = files.some(f => isVideoFile(f.name));
+            pickedFiles = hasVideo
+                ? files.filter(f => isVideoFile(f.name)).slice(0, 1)
+                : files.filter(f => isImageFile(f.name));
+            refreshSource();
+        };
+
         pickBtn.addEventListener('click', () => fileInput.click());
         clearBtn.addEventListener('click', () => {
             pickedFiles = [];
             fileInput.value = '';
             refreshSource();
         });
-
         fileInput.addEventListener('change', () => {
-            const all = fileInput.files ? Array.from(fileInput.files) : [];
-            const hasVideo = all.some(f => isVideoFile(f.name));
-            pickedFiles = hasVideo
-                ? all.filter(f => isVideoFile(f.name)).slice(0, 1)
-                : all.filter(f => isImageFile(f.name));
-            refreshSource();
+            if (fileInput.files) acceptFiles(Array.from(fileInput.files));
         });
 
+        // Global drag-and-drop: listens on the whole console, not just the button
+        consoleEl.addEventListener('dragover', (e: DragEvent) => {
+            e.preventDefault();
+            pickBtn.classList.add('is-over');
+        });
+        consoleEl.addEventListener('dragleave', (e: DragEvent) => {
+            if (!consoleEl.contains(e.relatedTarget as Node)) {
+                pickBtn.classList.remove('is-over');
+            }
+        });
+        consoleEl.addEventListener('drop', (e: DragEvent) => {
+            e.preventDefault();
+            pickBtn.classList.remove('is-over');
+            if (e.dataTransfer) acceptFiles(Array.from(e.dataTransfer.files));
+        });
+
+        // ── Matcher wiring ──────────────────────────────────────────
+        const MATCHER_HINTS: Record<string, string> = {
+            sequential: 'frame-ordered · fastest',
+            vocab_tree: 'unordered · vocab tree · robust',
+            exhaustive: 'unordered · brute-force · slow',
+        };
         matcherWrap.querySelectorAll('button').forEach((b) => {
             b.addEventListener('click', () => {
                 currentMatcher = (b as HTMLButtonElement).dataset.v!;
                 setSegment(matcherWrap, currentMatcher);
-                matcherHint.textContent = currentMatcher === 'sequential'
-                    ? 'frame-ordered · fastest'
-                    : 'unordered photos · robust';
+                matcherHint.textContent = MATCHER_HINTS[currentMatcher] || '';
             });
         });
+
+        // ── FPS wiring ──────────────────────────────────────────────
         fpsWrap.querySelectorAll('button').forEach((b) => {
             b.addEventListener('click', () => {
                 currentFps = parseInt((b as HTMLButtonElement).dataset.v!, 10);
                 setSegment(fpsWrap, String(currentFps));
-                refreshHints();
+                void refreshHints();
             });
         });
 
@@ -644,22 +801,7 @@ class TrainPopup extends Container {
             itersOut.textContent = itersSlider.value;
         });
 
-        pickBtn.addEventListener('dragover', (e: DragEvent) => {
-            e.preventDefault();
-            pickBtn.classList.add('is-over');
-        });
-        pickBtn.addEventListener('dragleave', () => pickBtn.classList.remove('is-over'));
-        pickBtn.addEventListener('drop', (e: DragEvent) => {
-            e.preventDefault();
-            pickBtn.classList.remove('is-over');
-            const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
-            const hasVideo = files.some(f => isVideoFile(f.name));
-            pickedFiles = hasVideo
-                ? files.filter(f => isVideoFile(f.name)).slice(0, 1)
-                : files.filter(f => isImageFile(f.name));
-            refreshSource();
-        });
-
+        // ── Reset / Detach logic ────────────────────────────────────
         const reset = () => {
             pickedFiles = [];
             fileInput.value = '';
@@ -667,26 +809,22 @@ class TrainPopup extends Container {
             setProgress(0, '', 'standby — awaiting dispatch');
             stages.forEach(li => li.classList.remove('is-active', 'is-done', 'is-failed'));
             startBtn.disabled = true;
-            const dispatch = document.createElement('span'); dispatch.textContent = '▷ DISPATCH JOB';
-            startBtn.replaceChildren(dispatch);
+            const span = document.createElement('span'); span.textContent = '▷ DISPATCH JOB';
+            startBtn.replaceChildren(span);
             cancelBtn.textContent = 'esc · CLOSE';
             abortBtn.setAttribute('hidden', '');
             setState('idle');
             jobidEl.textContent = '—';
             activeJob = null;
             startedAt = 0;
+            stopRawLogPoll();
+            rawlogBox.setAttribute('hidden', '');
+            rawlogPre.textContent = '';
+            rawlogToggleBtn.textContent = '[ VIEW RAW LOG ]';
+            rawlogVisible = false;
             while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
             appendLog('SYS', 'console initialized', 'system');
-        };
-
-        let onCloseResolve: (() => void) | null = null;
-        const keydown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                e.stopPropagation();
-                onCloseResolve?.();
-            } else {
-                e.stopPropagation();
-            }
+            statusEl.textContent = 'READY';
         };
 
         const setStartLabel = (text: string) => {
@@ -695,12 +833,33 @@ class TrainPopup extends Container {
             startBtn.replaceChildren(span);
         };
 
+        // ── Keyboard handler ────────────────────────────────────────
+        let onCloseResolve: (() => void) | null = null;
+        const keydown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') { e.stopPropagation(); onCloseResolve?.(); }
+            else { e.stopPropagation(); }
+        };
+
+        // ── Show / Hide ─────────────────────────────────────────────
         this.show = () => {
-            reset();
-            void refreshRecent();
+            // If there's no active job in progress, reset the UI for a fresh session
+            if (!activeJob) {
+                reset();
+            } else {
+                // Reconnect to the background job
+                appendLog('SYS', `reconnecting to job ${activeJob.slice(0, 8)}…`, 'system');
+                statusEl.textContent = 'BACKGROUND JOB';
+            }
+
+            maybeRequestNotificationPermission();
             this.hidden = false;
             this.dom.addEventListener('keydown', keydown);
             this.dom.focus();
+
+            // Async init — don't block
+            void checkBackend().then(online => {
+                if (online) void Promise.all([loadGpuInfo(), refreshRecent()]);
+            });
 
             return new Promise<void>((resolve) => {
                 onCloseResolve = () => { resolve(); this.hide(); };
@@ -718,16 +877,24 @@ class TrainPopup extends Container {
                     cancelBtn.textContent = 'esc · DETACH';
                     abortBtn.removeAttribute('hidden');
                     startedAt = Date.now();
+
                     const localId = Math.random().toString(36).slice(2, 6).toUpperCase();
                     jobidEl.textContent = localId;
                     appendLog('DISPATCH', `local id ${localId} — uploading…`, 'system');
+
                     try {
                         const id = await submit();
                         activeJob = id;
                         appendLog('UPLOAD', `→ backend job ${id.slice(0, 8)}`, 'ok');
                         setState('running');
+                        statusEl.textContent = 'TRAINING';
+                        startRawLogPoll(id);
                         await subscribe(id);
+
+                        // Done
                         setState('done');
+                        statusEl.textContent = 'DONE';
+                        notify('SuperSplat — training complete', `${id.slice(0, 8)} is ready to load`);
                         appendLog('LOAD', 'loading PLY into editor…', 'ok');
                         const file = await fetchPlyAsFile(id);
                         await events.invoke('import', [{ filename: file.name, contents: file }]);
@@ -736,22 +903,30 @@ class TrainPopup extends Container {
                         startBtn.disabled = false;
                         startBtn.onclick = () => onCloseResolve?.();
                         abortBtn.setAttribute('hidden', '');
+                        activeJob = null;
+                        stopRawLogPoll();
                         void refreshRecent();
                     } catch (e: any) {
-                        if (String(e?.message ?? '').toLowerCase().includes('cancel')) {
+                        const isCancelled = String(e?.message ?? '').toLowerCase().includes('cancel');
+                        if (isCancelled) {
                             setState('cancelled');
                             appendLog('STOP', 'job cancelled', 'warn');
                             msg.textContent = 'cancelled — you can dispatch a new one';
                             setStartLabel('RETRY');
+                            statusEl.textContent = 'CANCELLED';
                         } else {
                             setState('failed');
                             appendLog('ERROR', e?.message ?? String(e), 'err');
                             msg.textContent = 'pipeline halted — see log above';
                             setStartLabel('RETRY');
+                            statusEl.textContent = 'FAILED';
+                            notify('SuperSplat — training failed', e?.message ?? 'See the console for details');
                         }
                         startBtn.disabled = false;
                         cancelBtn.textContent = 'esc · CLOSE';
                         abortBtn.setAttribute('hidden', '');
+                        activeJob = null;
+                        stopRawLogPoll();
                         void refreshRecent();
                     }
                 };
@@ -760,10 +935,17 @@ class TrainPopup extends Container {
             });
         };
 
-        this.hide = () => { this.hidden = true; };
+        this.hide = () => {
+            // If a job is running, DETACH (keep activeJob so show() can reconnect)
+            if (activeJob) {
+                appendLog('SYS', 'detached — training continues in background', 'warn');
+            }
+            this.hidden = true;
+        };
 
         this.destroy = () => {
             clearInterval(utcTimer);
+            stopRawLogPoll();
             this.hide();
             super.destroy();
         };
