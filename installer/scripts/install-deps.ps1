@@ -60,9 +60,22 @@ function Expand-ZipTo {
 Log "=== OneClick SPLAT install-deps START ==="
 Log "AppDir: $AppDir"
 
+Write-Host ""
+Write-Host "================================================" -ForegroundColor Yellow
+Write-Host "  OneClick SPLAT -- dependency installer        " -ForegroundColor Yellow
+Write-Host "  6 steps total -- DO NOT close until you see   " -ForegroundColor Yellow
+Write-Host "  the GREEN banner saying ALL DEPENDENCIES OK   " -ForegroundColor Yellow
+Write-Host "================================================" -ForegroundColor Yellow
+Write-Host ""
+
+# Wrap the whole install in try/catch so any error stays visible -- without
+# this, a throw closes the window before the user can read the message.
+try {
+
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. Python 3.10
+# STEP 1/6 -- Python 3.10
 # ─────────────────────────────────────────────────────────────────────────────
+Write-Host "[STEP 1/6] Verifying Python 3.10" -ForegroundColor Cyan
 $PythonExe = Get-Command python -ErrorAction SilentlyContinue
 $Python310 = $null
 
@@ -176,7 +189,7 @@ function Invoke-Pip {
 # Upgrade pip first (using $VenvPy directly since $VenvPip will be replaced)
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Cyan
-Write-Host "  Upgrading pip / wheel / setuptools" -ForegroundColor Cyan
+Write-Host "  [STEP 2/6] Upgrading pip / wheel / setuptools" -ForegroundColor Cyan
 Write-Host "================================================" -ForegroundColor Cyan
 Log "[BEGIN] pip upgrade"
 $proc = Start-Process -FilePath $VenvPy `
@@ -205,7 +218,7 @@ if (Test-Path $TorchSitePath) {
 Log "Torch probe -> $(if ($TorchInstalled) { $TorchInstalled } else { 'not found' })"
 
 if (-not $TorchInstalled) {
-    $rc = Invoke-Pip -Label "Installing PyTorch 2.1.2 + CUDA 11.8  (~2.7 GB, 3-6 min)" -Args @(
+    $rc = Invoke-Pip -Label "[STEP 3/6] Installing PyTorch 2.1.2 + CUDA 11.8  (~2.7 GB, 3-6 min)" -Args @(
         'install', '--no-cache-dir',
         'torch==2.1.2+cu118',
         'torchvision==0.16.2+cu118',
@@ -228,7 +241,7 @@ if (Test-Path $NSInitPath) {
 Log "nerfstudio probe -> $(if ($NSInstalled) { 'present' } else { 'not found' })"
 
 if (-not $NSInstalled) {
-    $rc = Invoke-Pip -Label "Installing nerfstudio  (~2 GB, 8-15 min -- DO NOT close this window)" -Args @(
+    $rc = Invoke-Pip -Label "[STEP 4/6] Installing nerfstudio  (~2 GB, 8-15 min -- DO NOT close, more steps after this!)" -Args @(
         'install', '--no-cache-dir', 'nerfstudio==1.1.4'
     )
     if ($rc -ne 0) { throw "nerfstudio install failed (exit $rc)" }
@@ -239,7 +252,7 @@ if (-not $NSInstalled) {
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. FastAPI + utilities
 # ─────────────────────────────────────────────────────────────────────────────
-$rc = Invoke-Pip -Label "Installing FastAPI server deps  (~50 MB, 30 s)" -Args @(
+$rc = Invoke-Pip -Label "[STEP 5/6] Installing FastAPI server deps  (~50 MB, 30 s)" -Args @(
     'install', '--no-cache-dir',
     'fastapi==0.115.0',
     'uvicorn[standard]==0.30.6',
@@ -253,6 +266,10 @@ if ($rc -ne 0) { throw "FastAPI deps install failed (exit $rc)" }
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. COLMAP (Windows pre-built binary)
 # ─────────────────────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "================================================" -ForegroundColor Cyan
+Write-Host "  [STEP 6/6] Downloading COLMAP + ffmpeg  (~850 MB, 1-2 min)" -ForegroundColor Cyan
+Write-Host "================================================" -ForegroundColor Cyan
 $ColmapDir = Join-Path $AppDir "tools\colmap"
 if (-not (Test-Path "$ColmapDir\bin\colmap.exe")) {
     Log "Downloading COLMAP 3.9.1 Windows CUDA build (~750 MB)"
@@ -335,3 +352,22 @@ Write-Host ""
 Write-Host "This window will close automatically in 10 seconds..." -ForegroundColor Gray
 Start-Sleep -Seconds 10
 exit 0
+
+} catch {
+    # Any error during install lands here -- print a prominent banner and
+    # PAUSE so the user can read the error before the window closes.
+    Write-Host ""
+    Write-Host "================================================" -ForegroundColor Red
+    Write-Host "                                                " -ForegroundColor Red
+    Write-Host "             ERROR DURING INSTALL               " -ForegroundColor Red
+    Write-Host "                                                " -ForegroundColor Red
+    Write-Host "================================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  $_" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Log:  $LogPath" -ForegroundColor Gray
+    Write-Host ""
+    Log "[FATAL] $_"
+    Read-Host "Press Enter to close this window"
+    exit 1
+}
