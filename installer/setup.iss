@@ -7,7 +7,7 @@
 ; ============================================================================
 
 #define MyAppName         "OneClick SPLAT"
-#define MyAppVersion      "2.27.5"
+#define MyAppVersion      "2.27.6"
 #define MyAppPublisher    "Oli97430"
 #define MyAppURL          "https://github.com/Oli97430/supersplat"
 #define MyAppExeName      "OneClickSPLAT.exe"
@@ -60,9 +60,10 @@ Source: "..\server\.env.example";    DestDir: "{app}\server"; Flags: ignoreversi
 Source: "..\dist\*"; DestDir: "{app}\frontend"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ── Bundled launchers and scripts ──────────────────────────────────────────
-Source: "scripts\launch.ps1";        DestDir: "{app}\scripts"; Flags: ignoreversion
-Source: "scripts\install-deps.ps1";  DestDir: "{app}\scripts"; Flags: ignoreversion
-Source: "scripts\check-gpu.ps1";     DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "scripts\launch.ps1";         DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "scripts\serve-frontend.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "scripts\install-deps.ps1";   DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "scripts\check-gpu.ps1";      DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "scripts\OneClickSPLAT.exe.cmd"; DestDir: "{app}"; DestName: "OneClickSPLAT.cmd"; Flags: ignoreversion
 Source: "scripts\update.ps1";        DestDir: "{app}\scripts"; Flags: ignoreversion
 
