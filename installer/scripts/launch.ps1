@@ -10,6 +10,10 @@ param([string]$AppDir = (Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference = "Continue"
 $ProgressPreference    = "SilentlyContinue"
 
+# Normalise the install path — the OneClickSPLAT.cmd wrapper passes "%~dp0."
+# which produces a trailing "\." that's ugly in error messages.
+try { $AppDir = [IO.Path]::GetFullPath($AppDir) } catch { }
+
 # ── User-writable data location ──────────────────────────────────────────
 $UserData = Join-Path $env:LOCALAPPDATA "OneClickSPLAT"
 $LogDir   = Join-Path $UserData "logs"
@@ -33,22 +37,56 @@ $ServeScript  = Join-Path $AppDir "scripts\serve-frontend.ps1"
 
 # ── Sanity check: was install-deps run? ──────────────────────────────────
 if (-not (Test-Path $VenvPy)) {
+    $InstallDeps = Join-Path $AppDir "scripts\install-deps.ps1"
+
     Write-Host ""
     Write-Host "  +------------------------------------------------------+" -ForegroundColor Yellow
     Write-Host "  |  Python virtual environment not found.               |" -ForegroundColor Yellow
     Write-Host "  |  ML dependencies were not installed during setup.    |" -ForegroundColor Yellow
     Write-Host "  +------------------------------------------------------+" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  Expected:  $VenvPy" -ForegroundColor Gray
+    Write-Host "  Expected: $VenvPy" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  To finish the install, run this in an Administrator PowerShell:" -ForegroundColor Cyan
+    Write-Host "  I can run the dependency installer for you now."  -ForegroundColor Cyan
+    Write-Host "  It will:"
+    Write-Host "    - Open an Administrator PowerShell window (UAC prompt)"
+    Write-Host "    - Install Python 3.10 silently if missing"
+    Write-Host "    - Download PyTorch + nerfstudio + COLMAP + ffmpeg"
+    Write-Host "    - ~6 GB total, 10-15 min depending on bandwidth"
     Write-Host ""
-    Write-Host "      & '$AppDir\scripts\install-deps.ps1' -AppDir '$AppDir'" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  ~6 GB download, 10-15 min." -ForegroundColor Gray
-    Write-Host ""
-    Read-Host "Press Enter to exit"
-    exit 1
+    $ans = Read-Host "  Run installer now? [Y/n]"
+    if ([string]::IsNullOrEmpty($ans) -or $ans -match '^[yYoO]') {
+        Write-Host ""
+        Write-Host "  Launching admin installer..." -ForegroundColor Cyan
+        try {
+            $psArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$InstallDeps`" -AppDir `"$AppDir`""
+            Start-Process powershell -Verb RunAs -Wait -ArgumentList $psArgs
+            Write-Host ""
+            if (Test-Path $VenvPy) {
+                Write-Host "  Done. Continuing startup..." -ForegroundColor Green
+                Write-Host ""
+            } else {
+                Write-Host "  Installer finished but venv is still missing." -ForegroundColor Red
+                Write-Host "  Check %LOCALAPPDATA%\OneClickSPLAT\logs\install.log for details." -ForegroundColor Gray
+                Read-Host "  Press Enter to exit"
+                exit 1
+            }
+        } catch {
+            Write-Host ""
+            Write-Host "  Failed to elevate: $_" -ForegroundColor Red
+            Write-Host "  Run this manually in an Administrator PowerShell:" -ForegroundColor Cyan
+            Write-Host "      & `"$InstallDeps`" -AppDir `"$AppDir`"" -ForegroundColor White
+            Read-Host "  Press Enter to exit"
+            exit 1
+        }
+    } else {
+        Write-Host ""
+        Write-Host "  To install later, run this in an Administrator PowerShell:" -ForegroundColor Cyan
+        Write-Host "      & `"$InstallDeps`" -AppDir `"$AppDir`"" -ForegroundColor White
+        Write-Host ""
+        Read-Host "  Press Enter to exit"
+        exit 1
+    }
 }
 
 # ── PATH bootstrap so backend subprocesses find colmap.exe and ffmpeg.exe
