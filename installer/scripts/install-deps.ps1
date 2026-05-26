@@ -165,9 +165,19 @@ $VenvPy  = Join-Path $Venv "Scripts\python.exe"
 $VenvPip = Join-Path $Venv "Scripts\pip.exe"
 Log "venv ready: $VenvPy"
 
-# Wrapper that runs pip via Start-Process so its output streams live to the
-# console (user sees download progress) instead of being silently captured.
-# Avoids the Tee-Object / NativeCommandError pipeline pitfalls of PS 5.1.
+# Wrapper that runs pip with direct invocation so output streams live to the
+# console (user sees download progress).
+#
+# IMPORTANT: we previously used `Start-Process -NoNewWindow -Wait -PassThru`
+# but that has a known PS 5.1 deadlock: after pip exits, WaitForExit can hang
+# for many minutes waiting for inherited console handles to release. Observed
+# in v2.27.15: pip nerfstudio finished but Start-Process didn't return for
+# ~18 min, with no CPU activity, blocking the whole install.
+#
+# Direct call (& $VenvPip @Args) avoids that. The temporary
+# $ErrorActionPreference = "Continue" prevents PS 5.1 from wrapping pip's
+# stderr lines in NativeCommandError (which would otherwise trip the script
+# under $ErrorActionPreference = "Stop").
 function Invoke-Pip {
     param(
         [Parameter(Mandatory = $true)] [string]$Label,
@@ -178,10 +188,20 @@ function Invoke-Pip {
     Write-Host "  $Label" -ForegroundColor Cyan
     Write-Host "================================================" -ForegroundColor Cyan
     Log "[BEGIN] $Label"
-    $proc = Start-Process -FilePath $VenvPip `
-        -ArgumentList $Args `
-        -NoNewWindow -Wait -PassThru
-    $rc = if ($proc) { $proc.ExitCode } else { -1 }
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        # | Out-Host  =>  pipe pip's stdout to the console so the user sees
+        # download progress, AND consume the success stream so it does NOT
+        # pollute the function's return value. Without the pipe, pip's stdout
+        # lines bubble up as the function's output and get concatenated with
+        # $rc, turning the int return into a string array that breaks every
+        # subsequent `if ($rc -ne 0)` check.
+        & $VenvPip @Args | Out-Host
+        $rc = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
     Log "[END]   $Label  (exit $rc)"
     return $rc
 }
@@ -192,10 +212,14 @@ Write-Host "================================================" -ForegroundColor C
 Write-Host "  [STEP 2/6] Upgrading pip / wheel / setuptools" -ForegroundColor Cyan
 Write-Host "================================================" -ForegroundColor Cyan
 Log "[BEGIN] pip upgrade"
-$proc = Start-Process -FilePath $VenvPy `
-    -ArgumentList @('-m', 'pip', 'install', '--upgrade', 'pip', 'wheel', 'setuptools') `
-    -NoNewWindow -Wait -PassThru
-$rc = if ($proc) { $proc.ExitCode } else { -1 }
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    & $VenvPy -m pip install --upgrade pip wheel setuptools | Out-Host
+    $rc = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $prevEAP
+}
 Log "[END]   pip upgrade  (exit $rc)"
 if ($rc -ne 0) { throw "pip upgrade failed (exit $rc)" }
 
@@ -331,9 +355,12 @@ $ToolsBin = @(
 
 # Write a small PATH bootstrap that the launcher will source
 $PathFile = Join-Path $AppDir "scripts\paths.env.cmd"
+$ColmapLib = "$ColmapDir\lib"
 @"
 @echo off
-set "PATH=$ToolsBin;$Venv\Scripts;%PATH%"
+rem ColmapLib FIRST so DLL search finds boost/ceres/cudart/Qt before bin/.
+set "PATH=$ColmapLib;$ToolsBin;$Venv\Scripts;%PATH%"
+set "QT_PLUGIN_PATH=$ColmapLib\plugins;%QT_PLUGIN_PATH%"
 "@ | Set-Content -Path $PathFile -Encoding ASCII
 
 Log "=== install-deps COMPLETE ==="

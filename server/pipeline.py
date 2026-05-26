@@ -25,6 +25,12 @@ ROOT = Path(__file__).parent.parent
 VENV_PY = ROOT / "venv" / "Scripts" / "python.exe"
 VENV_BIN = ROOT / "venv" / "Scripts"
 COLMAP_BIN = ROOT / "tools" / "colmap" / "bin"
+# COLMAP_LIB holds boost/ceres/cudart/FreeImage/Qt DLLs that colmap.exe must
+# load at startup. Without lib/ on PATH, colmap.exe silently fails to load and
+# nerfstudio's `check_colmap_installed` (which runs `colmap -h` and inspects
+# the exit code) reports "Could not find COLMAP".
+COLMAP_LIB = ROOT / "tools" / "colmap" / "lib"
+FFMPEG_BIN = ROOT / "tools" / "ffmpeg" / "bin"
 
 STAGES = ["queued", "preparing", "extracting", "colmap", "training", "exporting", "done"]
 
@@ -468,7 +474,14 @@ def _run(
     _check_cancel(cfg)
 
     full_env = os.environ.copy()
-    full_env["PATH"] = f"{COLMAP_BIN};{VENV_BIN};{full_env.get('PATH', '')}"
+    # Put COLMAP_LIB *before* COLMAP_BIN so the DLL search for colmap.exe finds
+    # boost/ceres/cudart/Qt/etc. immediately. Also include ffmpeg/bin so
+    # nerfstudio's check_ffmpeg_installed sees it.
+    full_env["PATH"] = (
+        f"{COLMAP_LIB};{COLMAP_BIN};{FFMPEG_BIN};{VENV_BIN};"
+        f"{full_env.get('PATH', '')}"
+    )
+    full_env["QT_PLUGIN_PATH"] = f"{COLMAP_LIB / 'plugins'};{full_env.get('QT_PLUGIN_PATH', '')}"
     full_env["PYTHONIOENCODING"] = "utf-8"
     full_env["PYTHONUTF8"] = "1"
     if env:

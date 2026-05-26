@@ -32,6 +32,10 @@ $VenvPy       = Join-Path $Venv  "Scripts\python.exe"
 $Server       = Join-Path $AppDir "server"
 $Frontend     = Join-Path $AppDir "frontend"
 $ColmapBin    = Join-Path $AppDir "tools\colmap\bin"
+# COLMAP DLLs (boost/ceres/cudart/Qt/etc) live in lib/, not bin/. Without
+# lib/ on PATH, colmap.exe fails to load and nerfstudio's check_colmap_installed
+# reports "Could not find COLMAP" even though the binary is right there.
+$ColmapLib    = Join-Path $AppDir "tools\colmap\lib"
 $FfmpegBin    = Join-Path $AppDir "tools\ffmpeg\bin"
 $ServeScript  = Join-Path $AppDir "scripts\serve-frontend.ps1"
 
@@ -133,7 +137,10 @@ if (-not $venvOk) {
 }
 
 # ── PATH bootstrap so backend subprocesses find colmap.exe and ffmpeg.exe
-$env:PATH = "$ColmapBin;$FfmpegBin;$Venv\Scripts;$env:PATH"
+# Order matters: ColmapLib comes first so DLL resolution finds boost/ceres/Qt
+# before anything else, then ColmapBin (where colmap.exe sits), then FfmpegBin.
+$env:PATH = "$ColmapLib;$ColmapBin;$FfmpegBin;$Venv\Scripts;$env:PATH"
+$env:QT_PLUGIN_PATH = "$ColmapLib\plugins;$env:QT_PLUGIN_PATH"
 
 # ── Tell backend where to write job output ───────────────────────────────
 $env:OCS_JOBS_DIR = $JobsDir
