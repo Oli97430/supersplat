@@ -73,26 +73,68 @@ if ($PythonExe) {
 }
 
 if (-not $Python310) {
+    # Probe known Python 3.10 install locations before downloading anything.
+    $candidates = @(
+        "C:\Program Files\Python310\python.exe",
+        "C:\Python310\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
+        "$env:ProgramW6432\Python310\python.exe"
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) {
+            $verCheck = (& $c --version 2>&1).ToString()
+            if ($verCheck -match "3\.10\.") {
+                $Python310 = $c
+                Log "Found existing Python 3.10 at $Python310 ($verCheck)"
+                break
+            }
+        }
+    }
+}
+
+if (-not $Python310) {
     Log "Python 3.10 not found -- downloading installer"
     $PyInstaller = Join-Path $env:TEMP "python-3.10.11-amd64.exe"
     Download-File "https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe" $PyInstaller
-    Log "Running Python 3.10 silent install"
-    Start-Process -FilePath $PyInstaller -ArgumentList @(
+
+    # Use PER-USER install (no AllUsers) to avoid conflicts with any existing
+    # Python (e.g. 3.12 already on the system, registry collisions, AppX).
+    # PER-USER installs to %LOCALAPPDATA%\Programs\Python\Python310 and is more
+    # forgiving than all-users when another Python build is present.
+    Log "Running Python 3.10 silent install (per-user)"
+    $pyLog = Join-Path $env:TEMP "python-3.10-install.log"
+    $proc = Start-Process -FilePath $PyInstaller -ArgumentList @(
         "/quiet",
-        "InstallAllUsers=1",
+        "/log", "`"$pyLog`"",
+        "InstallAllUsers=0",
         "PrependPath=1",
         "Include_test=0",
         "Include_doc=0",
-        "Include_launcher=1"
-    ) -Wait -NoNewWindow
+        "Include_launcher=1",
+        "TargetDir=`"$env:LOCALAPPDATA\Programs\Python\Python310`""
+    ) -Wait -NoNewWindow -PassThru
+    $rc = if ($proc) { $proc.ExitCode } else { -1 }
+    Log "Python 3.10 installer exited with code $rc"
+    if (Test-Path $pyLog) {
+        Log "Python installer log (last 20 lines):"
+        Get-Content $pyLog -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Log "  $_" }
+    }
+
     # Refresh PATH for this process
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-    $Python310 = "C:\Program Files\Python310\python.exe"
-    if (-not (Test-Path $Python310)) {
-        $Python310 = "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe"
-    }
-    if (-not (Test-Path $Python310)) {
-        throw "Python 3.10 install appears to have failed -- $Python310 not found"
+
+    # Check both per-user and all-users locations
+    $found = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
+        "C:\Program Files\Python310\python.exe",
+        "C:\Python310\python.exe"
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+    if ($found) {
+        $Python310 = $found
+        Log "Python 3.10 installed at $Python310"
+    } else {
+        throw "Python 3.10 install failed (exit $rc). See $pyLog for details. As a workaround, install Python 3.10 manually from https://www.python.org/downloads/release/python-31011/ then re-run this script."
     }
 }
 Log "Using Python: $Python310"
