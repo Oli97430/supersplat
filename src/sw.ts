@@ -31,6 +31,11 @@ const cacheUrls = [
 self.addEventListener('install', (event) => {
     console.log(`installing v${appVersion}`);
 
+    // Skip the waiting phase so a new SW immediately takes over.
+    // Without this, the user has to close every tab + reopen to see the
+    // updated assets — bumping version in package.json alone isn't enough.
+    self.skipWaiting();
+
     // create cache for current version
     event.waitUntil(
         caches.open(cacheName)
@@ -40,17 +45,18 @@ self.addEventListener('install', (event) => {
     );
 });
 
-self.addEventListener('activate', () => {
+self.addEventListener('activate', (event) => {
     console.log(`activating v${appVersion}`);
 
-    // delete the old caches once this one is activated
-    caches.keys().then((names) => {
-        for (const name of names) {
-            if (name !== cacheName) {
-                caches.delete(name);
-            }
-        }
-    });
+    event.waitUntil((async () => {
+        // delete the old caches once this one is activated
+        const names = await caches.keys();
+        await Promise.all(
+            names.filter(n => n !== cacheName).map(n => caches.delete(n))
+        );
+        // Claim all open clients so they start using the new SW now
+        await self.clients.claim();
+    })());
 });
 
 self.addEventListener('fetch', (event) => {
