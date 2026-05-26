@@ -74,6 +74,13 @@ $easing-out:  cubic-bezier(0.16, 1, 0.3, 1);
 
     h1, h2, p { margin: 0; padding: 0; }
 
+    // PCUI applies font-size: 12px to all .pcui-element descendants which
+    // breaks inheritance through <span> and <em>. Restore it explicitly.
+    span, em, b, i, strong {
+        font-size: inherit;
+        line-height: inherit;
+    }
+
     em {
         font-style: italic;
         font-weight: 500;
