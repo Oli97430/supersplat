@@ -35,8 +35,20 @@ $ColmapBin    = Join-Path $AppDir "tools\colmap\bin"
 $FfmpegBin    = Join-Path $AppDir "tools\ffmpeg\bin"
 $ServeScript  = Join-Path $AppDir "scripts\serve-frontend.ps1"
 
-# ── Sanity check: was install-deps run? ──────────────────────────────────
-if (-not (Test-Path $VenvPy)) {
+# ── Sanity check: was install-deps run AND did it finish? ───────────────
+# Just checking python.exe isn't enough — install-deps can stop midway
+# (e.g. after pip upgrade, before torch install), leaving a half-built venv.
+$venvOk = $false
+if (Test-Path $VenvPy) {
+    # Verify the critical modules import cleanly. If any missing, treat
+    # the install as incomplete and re-trigger the deps installer.
+    & $VenvPy -c "import uvicorn, fastapi, torch, nerfstudio" 2>$null
+    $venvOk = ($LASTEXITCODE -eq 0)
+    if (-not $venvOk) {
+        Write-Host "  ! Venv exists but core modules are missing -- treating as incomplete install." -ForegroundColor Yellow
+    }
+}
+if (-not $venvOk) {
     $InstallDeps = Join-Path $AppDir "scripts\install-deps.ps1"
 
     Write-Host ""
@@ -114,6 +126,20 @@ Get-Process python -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -eq $VenvPy } |
     Stop-Process -Force -ErrorAction SilentlyContinue
 
+# ── Detect stale uvicorn squatting port 8000 (e.g. dev session) ──────────
+# If something is already listening on 8000 that's NOT our venv, kill it
+# rather than failing silently when the new uvicorn can't bind.
+$squatter = Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorAction SilentlyContinue
+if ($squatter) {
+    $pid_ = $squatter[0].OwningProcess
+    $proc = Get-Process -Id $pid_ -ErrorAction SilentlyContinue
+    if ($proc -and $proc.Path -ne $VenvPy) {
+        Write-Host "  ! Port 8000 was held by another process (PID $pid_, $($proc.ProcessName)). Killing it." -ForegroundColor Yellow
+        Stop-Process -Id $pid_ -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+    }
+}
+
 Write-Host ""
 Write-Host "  +----------------------------------------+"
 Write-Host "  |       OneClick SPLAT  starting...      |"
@@ -146,13 +172,24 @@ $ready = $false
 $resp  = $null
 for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep -Milliseconds 500
+    # Verify our spawned process is still alive before probing
+    if (-not (Get-Process -Id $backend.Id -ErrorAction SilentlyContinue)) {
+        Write-Host "      Backend process died during startup. Check $BackendLog" -ForegroundColor Red
+        if (Test-Path $BackendLogErr) {
+            Write-Host "      Last error lines:" -ForegroundColor Gray
+            Get-Content $BackendLogErr -Tail 8 -ErrorAction SilentlyContinue |
+                ForEach-Object { Write-Host "        $_" -ForegroundColor Gray }
+        }
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
     try {
         $resp = Invoke-RestMethod -Uri "http://127.0.0.1:8000/" -TimeoutSec 2
         if ($resp.service) { $ready = $true; break }
     } catch { }
 }
 if (-not $ready) {
-    Write-Host "      Backend failed to start. Check $BackendLog" -ForegroundColor Red
+    Write-Host "      Backend failed to respond within 20s. Check $BackendLog" -ForegroundColor Red
     Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
     Read-Host "Press Enter to exit"
     exit 1

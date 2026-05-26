@@ -152,21 +152,31 @@ $VenvPy  = Join-Path $Venv "Scripts\python.exe"
 $VenvPip = Join-Path $Venv "Scripts\pip.exe"
 Log "venv ready: $VenvPy"
 
-# Upgrade pip
-& $VenvPy -m pip install --upgrade pip wheel setuptools 2>&1 | Tee-Object -Append -FilePath $LogPath | Out-Null
+# Upgrade pip — use plain redirect (NOT Tee-Object) to avoid Unicode/encoding
+# pipeline mishaps that can silently abort the script on long pip output.
+Log "Upgrading pip / wheel / setuptools"
+& $VenvPy -m pip install --upgrade pip wheel setuptools *>> $LogPath
+$rc = $LASTEXITCODE
+Log "pip upgrade exit code: $rc"
+if ($rc -ne 0) { throw "pip upgrade failed (exit $rc)" }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. PyTorch CUDA 11.8
 # ─────────────────────────────────────────────────────────────────────────────
+Log "Checking for existing PyTorch install..."
 $TorchInstalled = & $VenvPy -c "import torch; print(torch.__version__)" 2>$null
-if (-not $TorchInstalled -or $LASTEXITCODE -ne 0) {
+$torchProbeExit = $LASTEXITCODE
+Log "Torch probe -> output='$TorchInstalled', exit=$torchProbeExit"
+
+if (-not $TorchInstalled -or $torchProbeExit -ne 0) {
     Log "Installing PyTorch 2.1.2 + CUDA 11.8 (this can take several minutes -- ~2.7 GB)"
     & $VenvPip install --no-cache-dir `
         torch==2.1.2+cu118 `
         torchvision==0.16.2+cu118 `
-        --index-url https://download.pytorch.org/whl/cu118 2>&1 |
-        Tee-Object -Append -FilePath $LogPath
-    if ($LASTEXITCODE -ne 0) { throw "PyTorch install failed" }
+        --index-url https://download.pytorch.org/whl/cu118 *>> $LogPath
+    $rc = $LASTEXITCODE
+    Log "PyTorch install exit code: $rc"
+    if ($rc -ne 0) { throw "PyTorch install failed (exit $rc)" }
 } else {
     Log "PyTorch already installed: $TorchInstalled"
 }
@@ -174,11 +184,17 @@ if (-not $TorchInstalled -or $LASTEXITCODE -ne 0) {
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. nerfstudio
 # ─────────────────────────────────────────────────────────────────────────────
+Log "Checking for existing nerfstudio install..."
 $NSInstalled = & $VenvPy -c "import nerfstudio; print(nerfstudio.__version__)" 2>$null
+$nsProbeExit = $LASTEXITCODE
+Log "nerfstudio probe -> output='$NSInstalled', exit=$nsProbeExit"
+
 if (-not $NSInstalled) {
     Log "Installing nerfstudio (this will pull tinycudann etc., ~2 GB)"
-    & $VenvPip install --no-cache-dir nerfstudio==1.1.4 2>&1 | Tee-Object -Append -FilePath $LogPath
-    if ($LASTEXITCODE -ne 0) { throw "nerfstudio install failed" }
+    & $VenvPip install --no-cache-dir nerfstudio==1.1.4 *>> $LogPath
+    $rc = $LASTEXITCODE
+    Log "nerfstudio install exit code: $rc"
+    if ($rc -ne 0) { throw "nerfstudio install failed (exit $rc)" }
 } else {
     Log "nerfstudio already installed: $NSInstalled"
 }
@@ -193,8 +209,10 @@ Log "Installing FastAPI server deps"
     "sse-starlette==2.1.3" `
     "python-multipart==0.0.9" `
     "pillow" `
-    "numpy" 2>&1 | Tee-Object -Append -FilePath $LogPath
-if ($LASTEXITCODE -ne 0) { throw "FastAPI deps install failed" }
+    "numpy" *>> $LogPath
+$rc = $LASTEXITCODE
+Log "FastAPI deps install exit code: $rc"
+if ($rc -ne 0) { throw "FastAPI deps install failed (exit $rc)" }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. COLMAP (Windows pre-built binary)

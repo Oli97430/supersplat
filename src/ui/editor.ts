@@ -6,7 +6,8 @@ import { Events } from '../events';
 import { AboutPopup } from './about-popup';
 import { BottomToolbar } from './bottom-toolbar';
 import { ColorPanel } from './color-panel';
-import { EmptyState } from './empty-state';
+// Welcome screen disabled — the editor opens straight into the viewport.
+// import { EmptyState } from './empty-state';
 import { ExportPopup } from './export-popup';
 import { ImageSettingsDialog } from './image-settings-dialog';
 import { localize, localizeInit } from './localization';
@@ -199,8 +200,7 @@ class EditorUI {
         // train popup
         const trainPopup = new TrainPopup(events);
 
-        // empty state landing
-        const emptyState = new EmptyState(events);
+        // Welcome screen removed -- editor opens straight into the canvas.
 
         topContainer.append(popup);
         topContainer.append(exportPopup);
@@ -210,7 +210,6 @@ class EditorUI {
         topContainer.append(shortcutsPopup);
         topContainer.append(aboutPopup);
         topContainer.append(trainPopup);
-        topContainer.append(emptyState);
 
         appContainer.append(editorContainer);
         appContainer.append(topContainer);

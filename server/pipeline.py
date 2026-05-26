@@ -41,36 +41,42 @@ CAPTURE_PRESETS: dict[str, dict] = {
         "description": "Sculpture, product, plant — close range, 360° around",
         "matcher": "sequential", "max_iters": 20000,
         "extract_fps": 3, "blur_threshold": 80.0,
+        "dedupe_threshold": 4, "prune_opacity_logit": -2.5,
     },
     "indoor": {
         "label": "Indoor Scene",
         "description": "Room, café, museum interior — wide spaces",
         "matcher": "sequential", "max_iters": 30000,
         "extract_fps": 2, "blur_threshold": 100.0,
+        "dedupe_threshold": 4, "prune_opacity_logit": -2.5,
     },
     "outdoor": {
         "label": "Outdoor Scene",
         "description": "Building, landscape, monument — varied lighting",
         "matcher": "vocab_tree", "max_iters": 40000,
         "extract_fps": 2, "blur_threshold": 100.0,
+        "dedupe_threshold": 3, "prune_opacity_logit": -2.5,
     },
     "portrait": {
         "label": "Person / Portrait",
         "description": "Full body around a single subject",
         "matcher": "sequential", "max_iters": 25000,
         "extract_fps": 3, "blur_threshold": 120.0,
+        "dedupe_threshold": 4, "prune_opacity_logit": -2.5,
     },
     "preview": {
         "label": "Quick Preview",
         "description": "5k iterations — fast check before full training",
         "matcher": "sequential", "max_iters": 5000,
         "extract_fps": 2, "blur_threshold": 80.0,
+        "dedupe_threshold": 5, "prune_opacity_logit": -2.0,
     },
     "custom": {
         "label": "Custom",
         "description": "Manual parameters — blur filter disabled",
         "matcher": "sequential", "max_iters": 30000,
         "extract_fps": 2, "blur_threshold": 0.0,
+        "dedupe_threshold": 0, "prune_opacity_logit": -2.5,
     },
 }
 
@@ -174,6 +180,168 @@ def filter_blurry_frames(images_dir: Path, threshold: float) -> int:
             pass
     return removed
 
+
+def dedupe_consecutive_frames(images_dir: Path, hamming_threshold: int = 4) -> int:
+    """Drop frames that are near-identical to the previous frame using dHash.
+    Useful when the camera moves slowly: consecutive frames at 2-3 fps can be
+    almost the same and add no information for COLMAP / training.
+
+    Algorithm:
+      - 64-bit dHash (difference hash) per frame: resize to 9x8 grey,
+        compare each pixel to its right neighbour, flatten to 64 bits.
+      - Greedy walk: keep the first frame, drop the next if hamming(prev, cur)
+        is below threshold (4/64 by default ~ 6% of bits).
+      - Never drop more than half the frames; never run on fewer than 30.
+
+    Returns the number of frames removed."""
+    if hamming_threshold <= 0:
+        return 0
+    try:
+        from PIL import Image  # type: ignore
+        import numpy as np      # type: ignore
+    except ImportError:
+        return 0
+
+    candidates = sorted(images_dir.glob("*.jpg")) + sorted(images_dir.glob("*.png"))
+    if len(candidates) < 30:
+        return 0
+
+    # Compute dHash for every frame upfront.
+    hashes: list[tuple[Path, int | None]] = []
+    for img_path in candidates:
+        try:
+            with Image.open(img_path) as img:
+                arr = np.asarray(img.convert("L").resize((9, 8), Image.LANCZOS),
+                                 dtype=np.int16)
+            diff = arr[:, 1:] > arr[:, :-1]                # (8, 8) bool grid
+            bits = 0
+            for b in diff.flatten():
+                bits = (bits << 1) | int(b)
+            hashes.append((img_path, bits))
+        except Exception:
+            hashes.append((img_path, None))
+
+    keep_min = max(20, int(len(candidates) * 0.5))         # never drop > 50%
+    removed = 0
+    last_kept_hash: int | None = hashes[0][1]
+
+    for img_path, h in hashes[1:]:
+        if h is None or last_kept_hash is None:
+            last_kept_hash = h
+            continue
+        dist = bin(h ^ last_kept_hash).count("1")
+        if dist <= hamming_threshold and (len(candidates) - removed) > keep_min:
+            try:
+                img_path.unlink()
+                removed += 1
+            except Exception:
+                last_kept_hash = h
+        else:
+            last_kept_hash = h
+    return removed
+
+
+def optimize_ply(in_path: Path, out_path: Path,
+                 opacity_min_logit: float = -2.5) -> dict:
+    """Prune near-invisible gaussians from a 3D Gaussian Splat PLY.
+
+    The "opacity" field in a 3DGS PLY is the logit (pre-sigmoid) of the
+    visible alpha; sigmoid(-2.5) ~ 0.076 — these gaussians contribute almost
+    nothing visually but inflate the file size and slow editor loading.
+
+    Returns a stats dict: original_count, kept_count, pruned_count,
+    pruned_pct, original_size_mb, new_size_mb, size_reduction_pct.
+    On any parse failure returns {'error': '...'} and leaves files untouched."""
+    if not in_path.exists():
+        return {"error": "input missing"}
+    try:
+        import numpy as np  # type: ignore
+    except ImportError:
+        return {"error": "numpy not available"}
+
+    try:
+        with in_path.open("rb") as f:
+            header = bytearray()
+            while not header.endswith(b"end_header\n") and len(header) < 65536:
+                ch = f.read(1)
+                if not ch:
+                    return {"error": "header truncated"}
+                header += ch
+            data = f.read()
+
+        text = header.decode("ascii", errors="ignore")
+        m_count = re.search(r"element vertex (\d+)", text)
+        if not m_count:
+            return {"error": "no vertex count"}
+        count = int(m_count.group(1))
+
+        properties = re.findall(r"property float ([a-zA-Z_0-9]+)", text)
+        if "opacity" not in properties:
+            return {"error": "no opacity field"}
+
+        opacity_idx = properties.index("opacity")
+        nfloats     = len(properties)
+        expected    = count * nfloats * 4
+        if len(data) < expected:
+            return {"error": f"data truncated: got {len(data)} expected {expected}"}
+
+        arr  = np.frombuffer(data[:expected], dtype=np.float32).reshape(count, nfloats)
+        mask = arr[:, opacity_idx] >= opacity_min_logit
+        kept = arr[mask]
+        new_count = int(kept.shape[0])
+
+        if new_count == count:
+            # nothing pruned -- just copy through
+            shutil.copy(in_path, out_path)
+        else:
+            new_header = text.replace(f"element vertex {count}",
+                                      f"element vertex {new_count}", 1)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with out_path.open("wb") as f:
+                f.write(new_header.encode("ascii"))
+                f.write(kept.tobytes())
+
+        orig_size = in_path.stat().st_size
+        new_size  = out_path.stat().st_size
+        return {
+            "original_count":      count,
+            "kept_count":          new_count,
+            "pruned_count":        count - new_count,
+            "pruned_pct":          round((count - new_count) / count * 100, 1) if count else 0,
+            "original_size_mb":    round(orig_size / 1024 / 1024, 2),
+            "new_size_mb":         round(new_size  / 1024 / 1024, 2),
+            "size_reduction_pct":  round((1 - new_size / orig_size) * 100, 1) if orig_size else 0,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def find_latest_checkpoint(outputs_dir: Path) -> tuple[Optional[Path], int]:
+    """Locate the highest-step checkpoint of a previous splatfacto run.
+
+    Returns (run_dir, step) where run_dir is the timestamped folder
+    containing the checkpoint and step is the iteration count.
+    Returns (None, 0) if no checkpoint exists."""
+    splatfacto_root = outputs_dir / "workspace" / "splatfacto"
+    if not splatfacto_root.exists():
+        return None, 0
+    best_dir, best_step = None, 0
+    for run in sorted(splatfacto_root.iterdir(), reverse=True):
+        if not run.is_dir():
+            continue
+        ckpt_dir = run / "nerfstudio_models"
+        if not ckpt_dir.exists():
+            continue
+        for ckpt in ckpt_dir.glob("step-*.ckpt"):
+            m = re.match(r"step-(\d+)\.ckpt", ckpt.name)
+            if not m:
+                continue
+            step = int(m.group(1))
+            if step > best_step:
+                best_step = step
+                best_dir  = run
+    return best_dir, best_step
+
 # Regex patterns for progress parsing from subprocess stdout.
 _RE_COLMAP_FEAT  = re.compile(r'Extracting features.*?\[(\d+)/(\d+)\]', re.IGNORECASE)
 _RE_COLMAP_MATCH = re.compile(r'[Mm]atch.*?\[(\d+)/(\d+)\]')
@@ -218,7 +386,9 @@ class JobConfig:
     matcher: str = "sequential"
     max_iters: int = 30000
     extract_fps: int = 2
-    blur_threshold: float = 0.0  # 0 disables blur filter
+    blur_threshold: float = 0.0       # 0 disables blur filter
+    dedupe_threshold: int = 0         # 0 disables dedup; 4 ≈ drop near-identical
+    prune_opacity_logit: float = -2.5 # PLY pruning threshold (sigmoid≈0.076)
     cancel_event: Optional[threading.Event] = None
     _proc_ref: dict = field(default_factory=dict)
 
@@ -389,10 +559,19 @@ def stage_extract_frames(cfg: JobConfig, cb: ProgressCb):
 
     # Blur filter — drop the worst frames before COLMAP.
     if cfg.blur_threshold > 0:
-        _emit(cb, cfg, "extracting", 0.85, f"Filtering blurry frames (threshold {cfg.blur_threshold:.0f})")
+        _emit(cb, cfg, "extracting", 0.78, f"Filtering blurry frames (threshold {cfg.blur_threshold:.0f})")
         removed = filter_blurry_frames(cfg.images_dir, cfg.blur_threshold)
         if removed:
             _log(cfg, f"✓ Removed {removed} blurry frames")
+            n = len(list(cfg.images_dir.iterdir()))
+
+    # Deduplicate consecutive near-identical frames (slow camera motion).
+    if cfg.dedupe_threshold > 0:
+        _emit(cb, cfg, "extracting", 0.88,
+              f"Deduplicating frames (hamming ≤ {cfg.dedupe_threshold})")
+        dup_removed = dedupe_consecutive_frames(cfg.images_dir, cfg.dedupe_threshold)
+        if dup_removed:
+            _log(cfg, f"✓ Dropped {dup_removed} near-duplicate frames")
             n = len(list(cfg.images_dir.iterdir()))
 
     _emit(cb, cfg, "extracting", 1.0, f"{n} frames ready")
@@ -474,7 +653,16 @@ def stage_train(cfg: JobConfig, cb: ProgressCb):
     _emit(cb, cfg, "training", 0.01, f"Training splatfacto ({cfg.max_iters:,} iterations)")
     cfg.outputs_dir.mkdir(parents=True, exist_ok=True)
 
-    last_step = [0]
+    # ── Resume from existing checkpoint if available ───────────────────────
+    resume_dir, resume_step = find_latest_checkpoint(cfg.outputs_dir)
+    if resume_dir and resume_step >= cfg.max_iters:
+        _log(cfg, f"✓ Training already complete at step {resume_step:,} "
+                  f"(target {cfg.max_iters:,}) — skipping to export")
+        _emit(cb, cfg, "training", 1.0,
+              f"resumed at step {resume_step:,} (already done)")
+        return
+
+    last_step = [resume_step]
     last_emit_t = [0.0]
 
     def on_line(line: str):
@@ -502,6 +690,16 @@ def stage_train(cfg: JobConfig, cb: ProgressCb):
         "--vis", "viewer",
         "--viewer.quit-on-train-completion", "True",
     ]
+    if resume_dir:
+        # Nerfstudio 1.x expects --load-dir to point at the EXPERIMENT folder
+        # (the one containing config.yml), not the nerfstudio_models/ subfolder.
+        # nerfstudio internally discovers the highest-step .ckpt under it.
+        cmd.extend(["--load-dir", str(resume_dir)])
+        _log(cfg, f"↻ Resuming from step {resume_step:,} in {resume_dir.name}")
+        _emit(cb, cfg, "training",
+              resume_step / max(cfg.max_iters, 1),
+              f"Resuming from step {resume_step:,}")
+
     rc = _run(cmd, cfg, on_line=on_line)
     if rc != 0:
         raise RuntimeError(f"ns-train failed (exit {rc})")
@@ -533,7 +731,29 @@ def stage_export(cfg: JobConfig, cb: ProgressCb):
     plies = list(cfg.exports_dir.glob("*.ply"))
     if not plies:
         raise RuntimeError("ns-export finished but produced no .ply file")
+
+    # Copy raw output, then optimise in place.
     shutil.copy(plies[0], cfg.ply_path)
+
+    if cfg.prune_opacity_logit > -10.0:  # sentinel: very-low value disables
+        _emit(cb, cfg, "exporting", 0.85, "Pruning low-opacity gaussians")
+        raw_backup = cfg.ply_path.with_suffix(".raw.ply")
+        shutil.move(cfg.ply_path, raw_backup)
+        stats = optimize_ply(raw_backup, cfg.ply_path,
+                             opacity_min_logit=cfg.prune_opacity_logit)
+        if "error" in stats:
+            # On any failure, keep the original PLY untouched
+            shutil.move(raw_backup, cfg.ply_path)
+            _log(cfg, f"PLY optimisation skipped: {stats['error']}")
+        else:
+            _log(cfg,
+                 f"✓ Pruned {stats['pruned_count']:,} gaussians "
+                 f"({stats['pruned_pct']}%) — "
+                 f"PLY {stats['original_size_mb']}MB → "
+                 f"{stats['new_size_mb']}MB "
+                 f"(-{stats['size_reduction_pct']}%)")
+            raw_backup.unlink(missing_ok=True)
+
     _emit(cb, cfg, "exporting", 1.0, f"PLY ready: {cfg.ply_path.name}")
 
 

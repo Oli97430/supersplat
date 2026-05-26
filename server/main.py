@@ -81,6 +81,8 @@ class JobState:
     extract_fps: int = 2
     preset: str = "custom"
     blur_threshold: float = 0.0
+    dedupe_threshold: int = 0
+    prune_opacity_logit: float = -2.5
     finished_at: Optional[float] = None
     metrics: Optional[dict] = None    # populated when done
 
@@ -104,13 +106,17 @@ class JobRegistry:
 
     def create(self, name: str, kind: str, num_files: int,
                matcher: str, max_iters: int, extract_fps: int,
-               preset: str = "custom", blur_threshold: float = 0.0) -> JobState:
+               preset: str = "custom", blur_threshold: float = 0.0,
+               dedupe_threshold: int = 0,
+               prune_opacity_logit: float = -2.5) -> JobState:
         jid = uuid.uuid4().hex[:12]
         st = JobState(
             id=jid, name=name, created_at=time.time(),
             upload_kind=kind, num_files=num_files,
             matcher=matcher, max_iters=max_iters, extract_fps=extract_fps,
             preset=preset, blur_threshold=blur_threshold,
+            dedupe_threshold=dedupe_threshold,
+            prune_opacity_logit=prune_opacity_logit,
         )
         with self._lock:
             self._jobs[jid] = st
@@ -267,6 +273,8 @@ async def worker():
             max_iters=st.max_iters,
             extract_fps=st.extract_fps,
             blur_threshold=st.blur_threshold,
+            dedupe_threshold=st.dedupe_threshold,
+            prune_opacity_logit=st.prune_opacity_logit,
             cancel_event=registry.get_cancel_event(jid),
         )
         registry.register_config(jid, cfg)
@@ -419,7 +427,9 @@ async def create_job(
         )
 
     # Resolve preset → fill in defaults but allow override via form
-    blur_threshold = 0.0
+    blur_threshold      = 0.0
+    dedupe_threshold    = 0
+    prune_opacity_logit = -2.5
     if preset in CAPTURE_PRESETS:
         p = CAPTURE_PRESETS[preset]
         # form values override preset only if explicitly different from defaults
@@ -429,7 +439,9 @@ async def create_job(
             max_iters = p["max_iters"]
         if extract_fps == 2:
             extract_fps = p["extract_fps"]
-        blur_threshold = p["blur_threshold"]
+        blur_threshold      = p["blur_threshold"]
+        dedupe_threshold    = p.get("dedupe_threshold", 0)
+        prune_opacity_logit = p.get("prune_opacity_logit", -2.5)
 
     names = [f.filename or "" for f in files]
     kind = "video" if any(
@@ -454,6 +466,8 @@ async def create_job(
         extract_fps=max(1, min(10, extract_fps)),
         preset=preset,
         blur_threshold=blur_threshold,
+        dedupe_threshold=dedupe_threshold,
+        prune_opacity_logit=prune_opacity_logit,
     )
     upload_dir = JOBS_ROOT / st.id / "upload"
     upload_dir.mkdir(parents=True, exist_ok=True)
