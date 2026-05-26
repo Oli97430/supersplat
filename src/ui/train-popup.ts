@@ -905,7 +905,7 @@ class TrainPopup extends Container {
                         // Done
                         setState('done');
                         statusEl.textContent = 'DONE';
-                        notify('SuperSplat — training complete', `${id.slice(0, 8)} is ready to load`);
+                        notify('OneClick SPLAT — training complete', `${id.slice(0, 8)} is ready to load`);
                         appendLog('LOAD', 'loading PLY into editor…', 'ok');
                         const file = await fetchPlyAsFile(id);
                         await events.invoke('import', [{ filename: file.name, contents: file }]);
@@ -931,7 +931,7 @@ class TrainPopup extends Container {
                             msg.textContent = 'pipeline halted — see log above';
                             setStartLabel('RETRY');
                             statusEl.textContent = 'FAILED';
-                            notify('SuperSplat — training failed', e?.message ?? 'See the console for details');
+                            notify('OneClick SPLAT — training failed', e?.message ?? 'See the console for details');
                         }
                         startBtn.disabled = false;
                         cancelBtn.textContent = 'esc · CLOSE';

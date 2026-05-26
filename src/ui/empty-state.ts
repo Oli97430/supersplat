@@ -15,7 +15,7 @@ const TEMPLATE = `<!DOCTYPE html><body>
     <div class="ems-glow" data-tk-glow></div>
 
     <div class="ems-corner ems-corner--tl">
-        <span class="ems-mark">SUPERSPLAT</span>
+        <span class="ems-mark">ONECLICK SPLAT</span>
         <span class="ems-dim">/ studio</span>
     </div>
     <div class="ems-corner ems-corner--tr">

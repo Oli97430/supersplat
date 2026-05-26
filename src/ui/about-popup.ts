@@ -77,7 +77,7 @@ class AboutPopup extends Container {
 
         const appName = new Label({
             id: 'about-app-name',
-            text: 'SuperSplat'
+            text: 'OneClick SPLAT'
         });
 
         const appVersionLabel = new Label({

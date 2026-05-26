@@ -78,7 +78,7 @@ class EditorUI {
         // app label
         const appLabel = new Label({
             id: 'app-label',
-            text: `SUPERSPLAT v${version}`
+            text: `ONECLICK SPLAT v${version}`
         });
 
         // cursor label
