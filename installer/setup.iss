@@ -36,8 +36,10 @@ ArchitecturesInstallIn64BitMode=x64compatible
 DiskSpanning=no
 MinVersion=10.0.17763
 UninstallDisplayIcon={app}\assets\icon.ico
-WizardImageFile=assets\wizard-large.bmp
-WizardSmallImageFile=assets\wizard-small.bmp
+; Wizard images are optional — provide assets\wizard-large.bmp (164x314)
+; and assets\wizard-small.bmp (55x58) to enable a branded installer UI.
+; WizardImageFile=assets\wizard-large.bmp
+; WizardSmallImageFile=assets\wizard-small.bmp
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
