@@ -6,6 +6,7 @@ import { Events } from '../events';
 import { AboutPopup } from './about-popup';
 import { BottomToolbar } from './bottom-toolbar';
 import { ColorPanel } from './color-panel';
+import { EmptyState } from './empty-state';
 import { ExportPopup } from './export-popup';
 import { ImageSettingsDialog } from './image-settings-dialog';
 import { localize, localizeInit } from './localization';
@@ -22,6 +23,7 @@ import { Spinner } from './spinner';
 import { StatusBar } from './status-bar';
 import { TimelinePanel } from './timeline-panel';
 import { Tooltips } from './tooltips';
+import { TrainPopup } from './train-popup';
 import { VideoSettingsDialog } from './video-settings-dialog';
 import { ViewCube } from './view-cube';
 import { ViewPanel } from './view-panel';
@@ -194,6 +196,12 @@ class EditorUI {
         // about popup
         const aboutPopup = new AboutPopup();
 
+        // train popup
+        const trainPopup = new TrainPopup(events);
+
+        // empty state landing
+        const emptyState = new EmptyState(events);
+
         topContainer.append(popup);
         topContainer.append(exportPopup);
         topContainer.append(publishSettingsDialog);
@@ -201,6 +209,8 @@ class EditorUI {
         topContainer.append(videoSettingsDialog);
         topContainer.append(shortcutsPopup);
         topContainer.append(aboutPopup);
+        topContainer.append(trainPopup);
+        topContainer.append(emptyState);
 
         appContainer.append(editorContainer);
         appContainer.append(topContainer);
@@ -222,6 +232,10 @@ class EditorUI {
 
         events.function('show.exportPopup', (exportType, splatNames: [string], showFilenameEdit: boolean) => {
             return exportPopup.show(exportType, splatNames, showFilenameEdit);
+        });
+
+        events.function('show.trainPopup', () => {
+            return trainPopup.show();
         });
 
         events.function('show.publishSettingsDialog', async () => {

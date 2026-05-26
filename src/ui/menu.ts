@@ -153,6 +153,12 @@ class Menu extends Container {
             isEnabled: () => !events.invoke('scene.empty'),
             onSelect: () => events.invoke('doc.new')
         }, {
+            text: localize('menu.file.train', { ellipsis: true }),
+            icon: createSvg(sceneNew),
+            onSelect: async () => {
+                await events.invoke('show.trainPopup');
+            }
+        }, {
             text: localize('menu.file.open'),
             icon: createSvg(sceneOpen),
             onSelect: async () => {
