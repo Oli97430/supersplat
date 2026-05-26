@@ -1405,6 +1405,50 @@ $lime:       #b5f200;
     font-variant-numeric: tabular-nums;
 }
 
+// ── Live 3D preview during training ──────────────────────────────────────────
+.tk-viewer-wrap {
+    margin-top: 16px;
+    border: 1px solid $line;
+    border-left: 2px solid $amber;
+    background: rgba(244, 211, 94, 0.03);
+}
+
+.tk-viewer-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: rgba(244, 211, 94, 0.06);
+    border-bottom: 1px solid $line;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    color: $amber;
+    text-transform: uppercase;
+    user-select: none;
+
+    .tk-viewer-title { flex: 1; }
+
+    .tk-viewer-link {
+        color: $amber;
+        text-decoration: none;
+        font-size: 9px;
+        letter-spacing: 0.18em;
+        opacity: 0.75;
+        transition: opacity 0.15s;
+    }
+    .tk-viewer-link:hover { opacity: 1; }
+}
+
+.tk-viewer-frame {
+    display: block;
+    width: 100%;
+    height: clamp(280px, 36vh, 480px);
+    border: none;
+    background: $bg-deep;
+}
+
 // ── Post-train metrics ───────────────────────────────────────────────────────
 .tk-metrics {
     display: grid;

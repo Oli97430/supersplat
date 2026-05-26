@@ -349,6 +349,8 @@ _RE_COLMAP_REG   = re.compile(r'[Rr]egister\w*\s+image.*?(\d+)\s+\((\d+)\)', re.
 _RE_COLMAP_MAP   = re.compile(r'[Mm]apping.*?\[(\d+)/(\d+)\]', re.IGNORECASE)
 _RE_TRAIN_STEP   = re.compile(r'[Ss]tep[:\s]+(\d+)\s*[/,|]\s*(\d+)')
 _RE_TRAIN_STEP2  = re.compile(r'(\d{3,})\s*/\s*(\d{4,})')  # fallback: bare N/M
+# nerfstudio prints a line like "[NOTE] Open the viewer at https://viewer.nerf.studio/?websocket_url=ws://localhost:7007"
+_RE_VIEWER_URL   = re.compile(r'(https?://[^\s]*?(?:viewer\.nerf\.studio|localhost:\d+)[^\s]*)')
 
 
 def get_gpu_info() -> dict:
@@ -428,6 +430,7 @@ class JobUpdate:
     overall: float = 0.0
     message: str = ""
     error: Optional[str] = None
+    viewer_url: Optional[str] = None      # Live nerfstudio viewer URL (training stage)
 
 
 ProgressCb = Callable[[JobUpdate], None]
@@ -664,8 +667,25 @@ def stage_train(cfg: JobConfig, cb: ProgressCb):
 
     last_step = [resume_step]
     last_emit_t = [0.0]
+    viewer_url = [None]   # Captured from nerfstudio stdout; reused in subsequent emits
 
     def on_line(line: str):
+        # Capture the live viewer URL once (first match wins).
+        if viewer_url[0] is None:
+            vm = _RE_VIEWER_URL.search(line)
+            if vm:
+                viewer_url[0] = vm.group(1).rstrip(' .,;)]')
+                _log(cfg, f"✓ Live viewer URL captured: {viewer_url[0]}")
+                # Push an immediate update so the UI shows the iframe ASAP.
+                p = last_step[0] / max(cfg.max_iters, 1) if last_step[0] else 0.0
+                cb(JobUpdate(
+                    stage="training",
+                    stage_progress=p,
+                    overall=min(1.0, (STAGES.index("training") + p) / (len(STAGES) - 1)),
+                    message=f"Live viewer ready" if last_step[0] == 0 else f"Step {last_step[0]:,} / {cfg.max_iters:,}",
+                    viewer_url=viewer_url[0],
+                ))
+
         m = _RE_TRAIN_STEP.search(line) or _RE_TRAIN_STEP2.search(line)
         if not m:
             return
@@ -680,7 +700,15 @@ def stage_train(cfg: JobConfig, cb: ProgressCb):
             return  # throttle to 1 emit/sec
         last_emit_t[0] = now
         p = step / max(total, 1)
-        _emit(cb, cfg, "training", p, f"Step {step:,} / {total:,}")
+        # Propagate the viewer URL on every subsequent emit so reconnecting
+        # clients (detach -> reopen popup) immediately get the iframe.
+        cb(JobUpdate(
+            stage="training",
+            stage_progress=p,
+            overall=min(1.0, (STAGES.index("training") + p) / (len(STAGES) - 1)),
+            message=f"Step {step:,} / {total:,}",
+            viewer_url=viewer_url[0],
+        ))
 
     cmd = [
         str(VENV_BIN / "ns-train.exe"), "splatfacto",

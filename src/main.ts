@@ -17,6 +17,7 @@ import { getSceneConfig } from './scene-config';
 import { registerSelectionEvents } from './selection';
 import { ShortcutManager } from './shortcut-manager';
 import { registerTimelineEvents } from './timeline';
+import { checkForUpdates } from './update-check';
 import { BoxSelection } from './tools/box-selection';
 import { BrushSelection } from './tools/brush-selection';
 import { EyedropperSelection } from './tools/eyedropper-selection';
@@ -285,6 +286,10 @@ const main = async () => {
             }
         });
     }
+
+    // Fire-and-forget update check — runs in background, shows a dismissible
+    // banner if a newer GitHub release exists. Rate-limited to once per 24h.
+    checkForUpdates().catch(() => { /* silent */ });
 };
 
 export { main };

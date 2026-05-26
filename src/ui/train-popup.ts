@@ -32,6 +32,84 @@ const STAGE_LABELS: Record<string, string> = {
     cancelled: 'STOP'
 };
 
+// ── Friendly error mapping ───────────────────────────────────────────────────
+// Translate technical stack traces / subprocess errors into actionable text.
+type ErrorHint = { title: string; advice: string };
+
+const ERROR_PATTERNS: { match: RegExp; hint: ErrorHint }[] = [
+    {
+        match: /CUDA out of memory|OutOfMemoryError|cuda.+OOM/i,
+        hint: {
+            title: 'GPU out of memory',
+            advice: 'Try the "Preview" preset (5 k iterations) or pick a shorter video. RTX 3060-class GPUs may struggle past 25 k iterations on high-res scenes.'
+        }
+    },
+    {
+        match: /transforms\.json|registered only \d+ camera poses?|need \d+\+/i,
+        hint: {
+            title: "COLMAP couldn't recover camera positions",
+            advice: 'Capture with slower camera movement and 60–70 % frame overlap. Try the "vocab_tree" matcher for unordered photos. Bright, evenly-lit scenes work best.'
+        }
+    },
+    {
+        match: /Only \d+ frames? extracted|need at least \d+ frames?/i,
+        hint: {
+            title: 'Not enough usable frames',
+            advice: 'Use a video at least 60 seconds long, or increase the FPS in the Parameters section to 3–5 fps.'
+        }
+    },
+    {
+        match: /ffmpeg failed|moov atom not found|Invalid data found/i,
+        hint: {
+            title: 'Video file could not be decoded',
+            advice: 'The source file may be corrupted or in an unusual container. Try re-encoding it to .mp4 with H.264 first (HandBrake, VLC, or any video editor).'
+        }
+    },
+    {
+        match: /rate limit|429/i,
+        hint: {
+            title: 'Too many jobs queued recently',
+            advice: 'The backend caps jobs per hour to keep the GPU available. Wait a few minutes, then dispatch again.'
+        }
+    },
+    {
+        match: /only [\d.]+ GB free|disk space|insufficient.*space/i,
+        hint: {
+            title: 'Not enough disk space',
+            advice: 'A typical job needs 5–10 GB. Clean older jobs from the Recent Jobs list (× button) or free up space on the install drive.'
+        }
+    },
+    {
+        match: /exceeds \d+ MB|413|file too large/i,
+        hint: {
+            title: 'Upload file too large',
+            advice: 'The per-file upload cap is 4 GB by default. Re-encode the video at a lower bitrate, or set OCS_MAX_UPLOAD_MB in the backend .env to raise the limit.'
+        }
+    },
+    {
+        match: /fetch|Failed to fetch|NetworkError|ECONNREFUSED|connection refused/i,
+        hint: {
+            title: 'Backend not reachable',
+            advice: 'The FastAPI server stopped responding. Re-launch OneClickSPLAT.cmd, or check Windows Firewall isn\'t blocking port 8000.'
+        }
+    },
+    {
+        match: /401|unauthorized|missing bearer token/i,
+        hint: {
+            title: 'Authentication required',
+            advice: 'The backend was started with OCS_AUTH_TOKEN set. Configure the matching token in the SETTINGS row of the offline panel.'
+        }
+    }
+];
+
+const friendlyError = (rawMessage: string): ErrorHint | null => {
+    const msg = String(rawMessage ?? '');
+    for (const { match, hint } of ERROR_PATTERNS) {
+        if (match.test(msg)) return hint;
+    }
+    return null;
+};
+
 // ── Formatters ───────────────────────────────────────────────────────────────
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const fmtBytes = (n: number) => {
@@ -272,6 +350,17 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                 </div>
             </div>
 
+            <div class="tk-viewer-wrap" hidden data-tk-viewer-wrap>
+                <div class="tk-viewer-header">
+                    <span class="tk-blink">&#9646;</span>
+                    <span class="tk-viewer-title">LIVE 3D PREVIEW</span>
+                    <a class="tk-viewer-link" data-tk-viewer-link target="_blank" rel="noopener">[ POP OUT &nearr; ]</a>
+                </div>
+                <iframe class="tk-viewer-frame" data-tk-viewer-frame
+                        title="nerfstudio live viewer"
+                        allow="cross-origin-isolated"></iframe>
+            </div>
+
             <div class="tk-log-header">
                 <span class="tk-blink">&#9646;</span>
                 <span class="tk-log-title">EVENT LOG</span>
@@ -408,6 +497,9 @@ class TrainPopup extends Container {
         const metCount        = q('[data-tk-met-count]');
         const metSize         = q('[data-tk-met-size]');
         const metDur          = q('[data-tk-met-dur]');
+        const viewerWrap      = q('[data-tk-viewer-wrap]');
+        const viewerFrame     = q<HTMLIFrameElement>('[data-tk-viewer-frame]');
+        const viewerLink      = q<HTMLAnchorElement>('[data-tk-viewer-link]');
         const offlineBox      = q('[data-tk-offline]');
         const urlInput        = q<HTMLInputElement>('[data-tk-url]');
         const retryBtn        = q<HTMLButtonElement>('[data-tk-retry]');
@@ -888,6 +980,21 @@ class TrainPopup extends Container {
             return j.id as string;
         };
 
+        // Mount/unmount the live nerfstudio viewer iframe based on job state.
+        const showViewer = (url: string) => {
+            if (viewerFrame.src === url) return;          // already loaded
+            viewerFrame.src = url;
+            viewerLink.href = url;
+            viewerWrap.removeAttribute('hidden');
+            appendLog('VIEW', 'live 3D preview attached', 'ok');
+        };
+        const hideViewer = () => {
+            if (viewerWrap.hasAttribute('hidden')) return;
+            viewerWrap.setAttribute('hidden', '');
+            viewerFrame.removeAttribute('src');           // stop the websocket
+            viewerLink.removeAttribute('href');
+        };
+
         const subscribe = (jobId: string) => new Promise<void>((resolve, reject) => {
             const src = new EventSource(`${getBackendUrl()}/jobs/${jobId}/stream`);
             let lastStage = '';
@@ -898,6 +1005,12 @@ class TrainPopup extends Container {
                     appendLog(STAGE_LABELS[s.stage] || s.stage.toUpperCase(), s.message || '',
                         s.stage === 'failed' ? 'err' : s.stage === 'cancelled' ? 'warn' : 'ok');
                     lastStage = s.stage;
+                }
+                // Live viewer URL handling -- show during training, drop on end.
+                if (s.viewer_url && s.stage === 'training') {
+                    showViewer(s.viewer_url);
+                } else if (s.stage !== 'training') {
+                    hideViewer();
                 }
                 if (s.stage === 'done') {
                     src.close(); resolve();
@@ -1065,6 +1178,7 @@ class TrainPopup extends Container {
             appendLog('SYS', 'console initialized', 'system');
             statusEl.textContent = 'READY';
             hideMetrics();
+            hideViewer();
             currentPreset = 'custom';
             applyPreset('custom');
             void refreshEstimate();
@@ -1168,11 +1282,20 @@ class TrainPopup extends Container {
                             statusEl.textContent = 'CANCELLED';
                         } else {
                             setState('failed');
-                            appendLog('ERROR', e?.message ?? String(e), 'err');
-                            msg.textContent = 'pipeline halted — see log above';
+                            const raw  = e?.message ?? String(e);
+                            const hint = friendlyError(raw);
+                            if (hint) {
+                                appendLog('REASON',  hint.title,  'err');
+                                appendLog('FIX',     hint.advice, 'warn');
+                                appendLog('TRACE',   raw,         'system');
+                                msg.textContent = hint.title;
+                            } else {
+                                appendLog('ERROR', raw, 'err');
+                                msg.textContent = 'pipeline halted — see log above';
+                            }
                             setStartLabel('RETRY');
                             statusEl.textContent = 'FAILED';
-                            notify('OneClick SPLAT — training failed', e?.message ?? 'See the console for details');
+                            notify('OneClick SPLAT — training failed', hint ? hint.title : (raw || 'See the console for details'));
                         }
                         startBtn.disabled = false;
                         cancelBtn.textContent = 'esc · CLOSE';

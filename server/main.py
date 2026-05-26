@@ -58,8 +58,32 @@ AUTH_TOKEN = os.environ.get("OCS_AUTH_TOKEN", "").strip()
 RATE_LIMIT = int(os.environ.get("OCS_RATE_LIMIT", "20"))
 MIN_DISK_GB = float(os.environ.get("OCS_MIN_DISK_GB", "5.0"))
 
-JOBS_ROOT = Path(__file__).parent / "jobs"
-JOBS_ROOT.mkdir(exist_ok=True)
+# Jobs directory — defaults to a per-user location when installed system-wide,
+# falls back to ./jobs next to main.py for local development.
+def _resolve_jobs_root() -> Path:
+    env = os.environ.get("OCS_JOBS_DIR", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    if os.name == "nt":
+        appdata = os.environ.get("LOCALAPPDATA")
+        if appdata:
+            return Path(appdata) / "OneClickSPLAT" / "jobs"
+    return Path.home() / ".oneclicksplat" / "jobs"
+
+# Env var always wins (the launcher sets it).
+if os.environ.get("OCS_JOBS_DIR"):
+    JOBS_ROOT = _resolve_jobs_root()
+else:
+    # Try ./jobs next to main.py first (local dev). If it's not writable
+    # (e.g. installed under Program Files), fall back to LOCALAPPDATA.
+    _local_jobs = Path(__file__).parent / "jobs"
+    try:
+        _local_jobs.mkdir(exist_ok=True)
+        JOBS_ROOT = _local_jobs
+    except (PermissionError, OSError):
+        JOBS_ROOT = _resolve_jobs_root()
+
+JOBS_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 # ---- In-memory job registry ------------------------------------------------
@@ -85,6 +109,7 @@ class JobState:
     prune_opacity_logit: float = -2.5
     finished_at: Optional[float] = None
     metrics: Optional[dict] = None    # populated when done
+    viewer_url: Optional[str] = None  # live nerfstudio viewer URL during training
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -176,8 +201,12 @@ class JobRegistry:
             st.message = upd.message
             if upd.error:
                 st.error = upd.error
+            if upd.viewer_url:
+                st.viewer_url = upd.viewer_url
             if upd.stage in ("done", "failed", "cancelled") and st.finished_at is None:
                 st.finished_at = time.time()
+                # Clear the live viewer URL — nerfstudio shut it down.
+                st.viewer_url = None
                 if upd.stage == "done":
                     st.metrics = ply_metrics(JOBS_ROOT / jid / "splat.ply")
             listeners = list(self._listeners.get(jid, []))
