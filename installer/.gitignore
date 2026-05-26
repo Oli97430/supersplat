@@ -1,0 +1,4 @@
+dist/*.exe
+dist/*.zip
+*.bak
+assets/wizard-*.bmp

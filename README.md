@@ -126,6 +126,24 @@ GET    /gpu               Detected GPU info (name, VRAM, free VRAM)
 
 ## ◈ Quick Start
 
+### One-click Windows installer (recommended)
+
+Grab `OneClickSPLAT-Setup-*.exe` from [Releases](https://github.com/Oli97430/supersplat/releases) and double-click. The installer:
+
+- Detects NVIDIA GPU
+- Installs Python 3.10 silently if absent
+- Downloads PyTorch + CUDA, nerfstudio, COLMAP, ffmpeg (≈ 6 GB on first run)
+- Bundles backend + prebuilt frontend
+- Creates Start Menu / Desktop shortcuts
+- Optional auto-start at login
+
+Build the installer yourself from [`installer/`](installer/) (Inno Setup 6 required):
+
+```bat
+cd installer
+build.bat
+```
+
 ### Run the editor (no training)
 
 ```sh

@@ -1,0 +1,12 @@
+Place a 256×256 .ico file at: assets/icon.ico
+(referenced by setup.iss as SetupIconFile and for shortcuts)
+
+Quick way to create one from a PNG:
+  - convert via https://convertio.co/png-ico/
+  - or use ImageMagick: magick icon.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
+
+Optional wizard images (164×314 and 55×58 BMP):
+  - assets/wizard-large.bmp  (164×314)
+  - assets/wizard-small.bmp  (55×58)
+
+If you don't provide these, comment out the related lines in setup.iss.
