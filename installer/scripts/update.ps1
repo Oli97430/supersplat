@@ -1,11 +1,11 @@
-# OneClick SPLAT — in-place updater (pulls latest from GitHub)
+﻿# OneClick SPLAT -- in-place updater (pulls latest from GitHub)
 # Replaces server/ and frontend/ from the latest GitHub release.
 
 param([string]$AppDir = (Split-Path $PSScriptRoot -Parent))
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "Checking for updates…"
+Write-Host "Checking for updates..."
 
 try {
     $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/Oli97430/supersplat/releases/latest"
@@ -20,7 +20,7 @@ $current = "v2.27.3-train"
 if (Test-Path "$AppDir\VERSION") { $current = (Get-Content "$AppDir\VERSION" -Raw).Trim() }
 
 if ($current -eq $tag) {
-    Write-Host "Already on $current — nothing to update." -ForegroundColor Green
+    Write-Host "Already on $current -- nothing to update." -ForegroundColor Green
     exit 0
 }
 
@@ -43,7 +43,7 @@ $root = Get-ChildItem $tmp -Directory | Select-Object -First 1
 Copy-Item "$($root.FullName)\server\main.py"     "$AppDir\server\main.py" -Force
 Copy-Item "$($root.FullName)\server\pipeline.py" "$AppDir\server\pipeline.py" -Force
 
-# Frontend needs to be built — skip if no node, or download a prebuilt artifact
+# Frontend needs to be built -- skip if no node, or download a prebuilt artifact
 # (For now, point user to manual update of frontend if they want it.)
 
 Set-Content -Path "$AppDir\VERSION" -Value $tag

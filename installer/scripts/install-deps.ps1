@@ -1,20 +1,25 @@
-# ============================================================================
-# OneClick SPLAT — first-run dependency installer
+﻿# ============================================================================
+# OneClick SPLAT -- first-run dependency installer
 # Runs as Administrator from the Inno Setup [Run] section.
 # Idempotent: safe to re-run if a step fails halfway.
 # ============================================================================
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$AppDir
+    [string]$AppDir,
+    # Caller (launch.ps1) passes the original non-elevated user's LOCALAPPDATA
+    # so logs land where the calling process can read them.
+    [string]$UserDataDir = ""
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference    = "SilentlyContinue"  # speeds up Invoke-WebRequest
 
 # Log to LOCALAPPDATA (always writable) with a fallback to AppDir if available.
-$UserDataDir = Join-Path $env:LOCALAPPDATA "OneClickSPLAT"
-$LogDir      = Join-Path $UserDataDir "logs"
+if ([string]::IsNullOrWhiteSpace($UserDataDir)) {
+    $UserDataDir = Join-Path $env:LOCALAPPDATA "OneClickSPLAT"
+}
+$LogDir = Join-Path $UserDataDir "logs"
 try {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
     $LogPath = Join-Path $LogDir "install.log"
@@ -68,7 +73,7 @@ if ($PythonExe) {
 }
 
 if (-not $Python310) {
-    Log "Python 3.10 not found — downloading installer"
+    Log "Python 3.10 not found -- downloading installer"
     $PyInstaller = Join-Path $env:TEMP "python-3.10.11-amd64.exe"
     Download-File "https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe" $PyInstaller
     Log "Running Python 3.10 silent install"
@@ -87,7 +92,7 @@ if (-not $Python310) {
         $Python310 = "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe"
     }
     if (-not (Test-Path $Python310)) {
-        throw "Python 3.10 install appears to have failed — $Python310 not found"
+        throw "Python 3.10 install appears to have failed -- $Python310 not found"
     }
 }
 Log "Using Python: $Python310"
@@ -113,7 +118,7 @@ Log "venv ready: $VenvPy"
 # ─────────────────────────────────────────────────────────────────────────────
 $TorchInstalled = & $VenvPy -c "import torch; print(torch.__version__)" 2>$null
 if (-not $TorchInstalled -or $LASTEXITCODE -ne 0) {
-    Log "Installing PyTorch 2.1.2 + CUDA 11.8 (this can take several minutes — ~2.7 GB)"
+    Log "Installing PyTorch 2.1.2 + CUDA 11.8 (this can take several minutes -- ~2.7 GB)"
     & $VenvPip install --no-cache-dir `
         torch==2.1.2+cu118 `
         torchvision==0.16.2+cu118 `
@@ -172,7 +177,7 @@ if (-not (Test-Path "$ColmapDir\bin\colmap.exe")) {
         if (Test-Path "$ColmapDir\COLMAP.bat") {
             Log "COLMAP installed (alternate structure)"
         } else {
-            throw "COLMAP install failed — colmap.exe not found"
+            throw "COLMAP install failed -- colmap.exe not found"
         }
     }
 } else {
@@ -197,7 +202,7 @@ if (-not (Test-Path "$FfmpegDir\bin\ffmpeg.exe")) {
     Remove-Item -Force $FfmpegZip -ErrorAction SilentlyContinue
 
     if (-not (Test-Path "$FfmpegDir\bin\ffmpeg.exe")) {
-        throw "ffmpeg install failed — ffmpeg.exe not found"
+        throw "ffmpeg install failed -- ffmpeg.exe not found"
     }
 } else {
     Log "ffmpeg already installed"

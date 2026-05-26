@@ -1,4 +1,4 @@
-# OneClick SPLAT — GPU prerequisite check
+﻿# OneClick SPLAT -- GPU prerequisite check
 # Logs a warning if no NVIDIA GPU is found, but doesn't block install
 # (user might still want to install for editor-only use).
 

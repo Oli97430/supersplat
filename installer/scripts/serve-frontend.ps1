@@ -1,4 +1,4 @@
-# OneClick SPLAT — minimal static file server (no external dependencies).
+﻿# OneClick SPLAT -- minimal static file server (no external dependencies).
 # Serves the prebuilt frontend bundle on http://127.0.0.1:3000.
 
 param(

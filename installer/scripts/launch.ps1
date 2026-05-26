@@ -1,5 +1,5 @@
-# ============================================================================
-# OneClick SPLAT — launcher
+﻿# ============================================================================
+# OneClick SPLAT -- launcher
 # Starts the FastAPI backend, serves the prebuilt frontend, opens the browser.
 # Runtime data (logs, jobs, pids) goes to %LOCALAPPDATA%\OneClickSPLAT
 # so it survives a read-only Program Files installation.
@@ -10,7 +10,7 @@ param([string]$AppDir = (Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference = "Continue"
 $ProgressPreference    = "SilentlyContinue"
 
-# Normalise the install path — the OneClickSPLAT.cmd wrapper passes "%~dp0."
+# Normalise the install path -- the OneClickSPLAT.cmd wrapper passes "%~dp0."
 # which produces a trailing "\." that's ugly in error messages.
 try { $AppDir = [IO.Path]::GetFullPath($AppDir) } catch { }
 
@@ -58,8 +58,20 @@ if (-not (Test-Path $VenvPy)) {
     if ([string]::IsNullOrEmpty($ans) -or $ans -match '^[yYoO]') {
         Write-Host ""
         Write-Host "  Launching admin installer..." -ForegroundColor Cyan
+        Write-Host "  (a console window will open; keep it open until it says DONE)" -ForegroundColor Gray
         try {
-            $psArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$InstallDeps`" -AppDir `"$AppDir`""
+            # Pass the *user's* LOCALAPPDATA explicitly so the elevated process
+            # writes logs where this (non-elevated) process can read them.
+            # -NoExit keeps the elevated window open if anything goes wrong so
+            # the user can read the error.
+            $psArgs = @(
+                '-NoProfile',
+                '-ExecutionPolicy', 'Bypass',
+                '-NoExit',
+                '-File', $InstallDeps,
+                '-AppDir', $AppDir,
+                '-UserDataDir', $UserData
+            )
             Start-Process powershell -Verb RunAs -Wait -ArgumentList $psArgs
             Write-Host ""
             if (Test-Path $VenvPy) {
@@ -67,7 +79,9 @@ if (-not (Test-Path $VenvPy)) {
                 Write-Host ""
             } else {
                 Write-Host "  Installer finished but venv is still missing." -ForegroundColor Red
-                Write-Host "  Check %LOCALAPPDATA%\OneClickSPLAT\logs\install.log for details." -ForegroundColor Gray
+                Write-Host "  Logs to check:"  -ForegroundColor Gray
+                Write-Host "    $LogDir\install.log" -ForegroundColor Gray
+                Write-Host "    $env:TEMP\oneclicksplat-install-crash.log" -ForegroundColor Gray
                 Read-Host "  Press Enter to exit"
                 exit 1
             }
@@ -145,7 +159,7 @@ if (-not $ready) {
 }
 Write-Host "      Backend ready (GPU: $($resp.gpu))" -ForegroundColor Green
 
-# ── 2. Frontend (separate ps1 file — no quoting nightmares) ─────────────
+# ── 2. Frontend (separate ps1 file -- no quoting nightmares) ─────────────
 Write-Host "[2/3] Starting static frontend on http://127.0.0.1:3000"
 
 $frontendArgs = @(
