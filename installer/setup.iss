@@ -7,7 +7,7 @@
 ; ============================================================================
 
 #define MyAppName         "OneClick SPLAT"
-#define MyAppVersion      "2.27.3"
+#define MyAppVersion      "2.27.5"
 #define MyAppPublisher    "Oli97430"
 #define MyAppURL          "https://github.com/Oli97430/supersplat"
 #define MyAppExeName      "OneClickSPLAT.exe"
@@ -83,14 +83,16 @@ Name: "{commonstartup}\OneClick SPLAT"; Filename: "{app}\OneClickSPLAT.cmd"; Ico
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\check-gpu.ps1"""; \
     StatusMsg: "Detecting NVIDIA GPU…"; \
-    Flags: runhidden
+    Flags: runhidden waituntilterminated
 
 ; ── Install dependencies (Python venv + torch + nerfstudio + COLMAP + ffmpeg)
+; Runs SYNCHRONOUSLY during the install — without this the user could click
+; "Finish" before the venv exists and the launcher would crash.
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-deps.ps1"" -AppDir ""{app}"""; \
-    StatusMsg: "Installing Python, ML deps, COLMAP, ffmpeg (this may take 5-15 min)…"; \
+    StatusMsg: "Installing Python, ML deps, COLMAP, ffmpeg (5-15 min, ~6 GB download)…"; \
     Tasks: downloadml; \
-    Flags: postinstall
+    Flags: waituntilterminated
 
 ; ── Optionally launch at end ───────────────────────────────────────────────
 Filename: "{app}\OneClickSPLAT.cmd"; \
@@ -109,6 +111,8 @@ Type: filesandordirs; Name: "{app}\venv"
 Type: filesandordirs; Name: "{app}\tools"
 Type: filesandordirs; Name: "{app}\jobs"
 Type: filesandordirs; Name: "{app}\logs"
+; Per-user runtime data (logs, jobs cache, PIDs) — opt-in cleanup
+Type: filesandordirs; Name: "{localappdata}\OneClickSPLAT"
 
 [Code]
 function InitializeSetup(): Boolean;

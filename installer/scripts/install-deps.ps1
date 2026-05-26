@@ -12,8 +12,17 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference    = "SilentlyContinue"  # speeds up Invoke-WebRequest
 
-$LogPath = Join-Path $AppDir "logs\install.log"
-New-Item -ItemType Directory -Path (Split-Path $LogPath) -Force | Out-Null
+# Log to LOCALAPPDATA (always writable) with a fallback to AppDir if available.
+$UserDataDir = Join-Path $env:LOCALAPPDATA "OneClickSPLAT"
+$LogDir      = Join-Path $UserDataDir "logs"
+try {
+    New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+    $LogPath = Join-Path $LogDir "install.log"
+} catch {
+    # Last-resort fallback (admin run, AppDir writable)
+    $LogPath = Join-Path $AppDir "logs\install.log"
+    New-Item -ItemType Directory -Path (Split-Path $LogPath) -Force | Out-Null
+}
 
 function Log {
     param([string]$Msg, [string]$Level = "INFO")
