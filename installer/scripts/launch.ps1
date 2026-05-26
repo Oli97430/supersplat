@@ -142,6 +142,65 @@ if (-not $venvOk) {
 $env:PATH = "$ColmapLib;$ColmapBin;$FfmpegBin;$Venv\Scripts;$env:PATH"
 $env:QT_PLUGIN_PATH = "$ColmapLib\plugins;$env:QT_PLUGIN_PATH"
 
+# ── MSVC + CUDA env (required for gsplat JIT compile via torch.utils.cpp_extension)
+# gsplat 1.0.0 (pinned by nerfstudio 1.1.4) ships only as a sdist and JIT-compiles
+# its CUDA kernels on first call. That needs cl.exe (MSVC) on PATH plus the
+# matching INCLUDE/LIB env, AND nvcc + CUDA_HOME for the CUDA side.
+function Initialize-MsvcCudaEnv {
+    # 1. MSVC -- source vcvars64.bat so we inherit PATH/INCLUDE/LIB
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) {
+        Write-Host "  ! vswhere.exe not found -- Visual Studio Build Tools likely missing." -ForegroundColor Yellow
+        Write-Host "    gsplat CUDA kernels will fail to compile on first training." -ForegroundColor Yellow
+        return $false
+    }
+    $vsInstall = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    if (-not $vsInstall) {
+        Write-Host "  ! No VS install with C++ tools found." -ForegroundColor Yellow
+        return $false
+    }
+    $vcvars = Join-Path $vsInstall "VC\Auxiliary\Build\vcvars64.bat"
+    if (-not (Test-Path $vcvars)) {
+        Write-Host "  ! vcvars64.bat missing at $vcvars" -ForegroundColor Yellow
+        return $false
+    }
+    # Source vcvars64.bat by running it in cmd, dumping env, and re-importing.
+    & cmd /c "`"$vcvars`" >nul 2>&1 && set" 2>$null | ForEach-Object {
+        if ($_ -match '^([^=]+)=(.*)$') {
+            [Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+        }
+    }
+    Write-Host "  MSVC env loaded from: $vcvars" -ForegroundColor DarkGray
+
+    # 2. CUDA Toolkit -- needed for nvcc to compile gsplat's .cu files.
+    # Prefer CUDA 12.x for newer MSVC compatibility. Fall back to 11.8 if only
+    # that's installed. Torch cu118 runtime is forward-compatible with newer
+    # nvcc-compiled binaries via the CUDA 11.x driver API.
+    $cudaCandidates = @(
+        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v12.8",
+        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v12.9",
+        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v12.1",
+        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v11.8",
+        "$env:CUDA_PATH_V12_8",
+        "$env:CUDA_PATH_V11_8"
+    ) | Where-Object { $_ -and (Test-Path "$_\bin\nvcc.exe") } | Select-Object -First 1
+    if (-not $cudaCandidates) {
+        Write-Host "  ! No CUDA Toolkit found (tried v12.8, v12.9, v12.1, v11.8)." -ForegroundColor Yellow
+        return $false
+    }
+    $env:CUDA_HOME = $cudaCandidates
+    $env:CUDA_PATH = $cudaCandidates
+    $env:PATH = "$cudaCandidates\bin;$cudaCandidates\libnvvp;$env:PATH"
+    Write-Host "  CUDA Toolkit:       $cudaCandidates" -ForegroundColor DarkGray
+    return $true
+}
+$msvcOk = Initialize-MsvcCudaEnv
+if (-not $msvcOk) {
+    Write-Host "  ! Training may fail on first gsplat CUDA call -- install VS Build Tools + CUDA 11.8" -ForegroundColor Yellow
+    Write-Host "    https://visualstudio.microsoft.com/visual-cpp-build-tools/" -ForegroundColor Gray
+    Write-Host "    https://developer.nvidia.com/cuda-11-8-0-download-archive" -ForegroundColor Gray
+}
+
 # ── Tell backend where to write job output ───────────────────────────────
 $env:OCS_JOBS_DIR = $JobsDir
 

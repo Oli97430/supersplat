@@ -212,10 +212,14 @@ Write-Host "================================================" -ForegroundColor C
 Write-Host "  [STEP 2/6] Upgrading pip / wheel / setuptools" -ForegroundColor Cyan
 Write-Host "================================================" -ForegroundColor Cyan
 Log "[BEGIN] pip upgrade"
+# Pin setuptools < 70 -- setuptools 80+ removed pkg_resources, which torch
+# 2.1.2's torch/utils/cpp_extension.py imports at runtime when gsplat loads
+# its CUDA extensions. Without this pin, training fails on the first iter
+# with "ModuleNotFoundError: No module named 'pkg_resources'".
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 try {
-    & $VenvPy -m pip install --upgrade pip wheel setuptools | Out-Host
+    & $VenvPy -m pip install --upgrade pip wheel "setuptools<70" | Out-Host
     $rc = $LASTEXITCODE
 } finally {
     $ErrorActionPreference = $prevEAP
