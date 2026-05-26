@@ -28,6 +28,8 @@ export default [
             '@typescript-eslint/ban-ts-comment': 'off',
             '@typescript-eslint/no-explicit-any': 'off',
             '@typescript-eslint/no-unused-vars': 'off',
+            'no-void': 'off',  // `void asyncFn()` is the standard TS idiom for fire-and-forget
+            'no-use-before-define': 'off',  // arrow-function helpers can be referenced before their assignment within the same scope (works at runtime)
             'jsdoc/require-param': 'off',
             'jsdoc/require-param-type': 'off',
             'jsdoc/require-returns': 'off',

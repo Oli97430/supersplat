@@ -1027,6 +1027,11 @@ $lime:       #b5f200;
     }
 }
 
+// ── Hidden state global override ────────────────────────────────────────────────
+// Custom `display: flex/grid/block` selectors below would otherwise override
+// the browser-default `display: none` from the [hidden] attribute. Force it.
+.tk-console [hidden] { display: none !important; }
+
 // ── Offline overlay ─────────────────────────────────────────────────────────────
 .tk-offline {
     position: absolute;

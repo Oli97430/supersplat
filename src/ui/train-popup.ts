@@ -21,9 +21,15 @@ const isImageFile = (name: string) => IMAGE_EXTS.some(e => name.toLowerCase().en
 
 const STAGE_ORDER = ['preparing', 'extracting', 'colmap', 'training', 'exporting', 'done'];
 const STAGE_LABELS: Record<string, string> = {
-    queued: 'QUEUED', preparing: 'PREPARE', extracting: 'EXTRACT',
-    colmap: 'COLMAP', training: 'TRAIN', exporting: 'EXPORT',
-    done: 'DONE', failed: 'FAIL', cancelled: 'STOP'
+    queued: 'QUEUED',
+    preparing: 'PREPARE',
+    extracting: 'EXTRACT',
+    colmap: 'COLMAP',
+    training: 'TRAIN',
+    exporting: 'EXPORT',
+    done: 'DONE',
+    failed: 'FAIL',
+    cancelled: 'STOP'
 };
 
 // ── Formatters ───────────────────────────────────────────────────────────────
@@ -52,18 +58,18 @@ const autoFps = (durationSec: number): number => {
     const target = 150;
     const raw = target / Math.max(durationSec, 1);
     const options = [1, 2, 3, 5];
-    return options.reduce((prev, cur) => Math.abs(cur - raw) < Math.abs(prev - raw) ? cur : prev);
+    return options.reduce((prev, cur) => (Math.abs(cur - raw) < Math.abs(prev - raw) ? cur : prev));
 };
 
 // ── Capture preset definitions (mirror server-side CAPTURE_PRESETS) ──────────
 type Preset = { id: string; label: string; description: string; matcher: string; max_iters: number; extract_fps: number; };
 const PRESETS: Preset[] = [
-    { id: 'object',   label: 'OBJECT',   description: 'sculpture, product · sequential · 20k', matcher: 'sequential', max_iters: 20000, extract_fps: 3 },
-    { id: 'indoor',   label: 'INDOOR',   description: 'room, café, museum · sequential · 30k', matcher: 'sequential', max_iters: 30000, extract_fps: 2 },
-    { id: 'outdoor',  label: 'OUTDOOR',  description: 'building, monument · vocab_tree · 40k', matcher: 'vocab_tree', max_iters: 40000, extract_fps: 2 },
-    { id: 'portrait', label: 'PORTRAIT', description: 'person, full-body · sequential · 25k',  matcher: 'sequential', max_iters: 25000, extract_fps: 3 },
-    { id: 'preview',  label: 'PREVIEW',  description: 'quick 5k iters · fast check first',     matcher: 'sequential', max_iters: 5000,  extract_fps: 2 },
-    { id: 'custom',   label: 'CUSTOM',   description: 'manual control of every parameter',     matcher: 'sequential', max_iters: 30000, extract_fps: 2 },
+    { id: 'object', label: 'OBJECT', description: 'sculpture, product · sequential · 20k', matcher: 'sequential', max_iters: 20000, extract_fps: 3 },
+    { id: 'indoor', label: 'INDOOR', description: 'room, café, museum · sequential · 30k', matcher: 'sequential', max_iters: 30000, extract_fps: 2 },
+    { id: 'outdoor', label: 'OUTDOOR', description: 'building, monument · vocab_tree · 40k', matcher: 'vocab_tree', max_iters: 40000, extract_fps: 2 },
+    { id: 'portrait', label: 'PORTRAIT', description: 'person, full-body · sequential · 25k', matcher: 'sequential', max_iters: 25000, extract_fps: 3 },
+    { id: 'preview', label: 'PREVIEW', description: 'quick 5k iters · fast check first', matcher: 'sequential', max_iters: 5000, extract_fps: 2 },
+    { id: 'custom', label: 'CUSTOM', description: 'manual control of every parameter', matcher: 'sequential', max_iters: 30000, extract_fps: 2 }
 ];
 
 // ── Cost estimator ───────────────────────────────────────────────────────────
@@ -74,9 +80,9 @@ const estimateJob = (
     iters: number
 ): { frames: number; uploadMB: number; diskMB: number; trainMin: number } => {
     const uploadMB = files.reduce((a, f) => a + f.size, 0) / 1024 / 1024;
-    const frames = videoMeta
-        ? Math.round(videoMeta.duration * fps)
-        : files.length;
+    const frames = videoMeta ?
+        Math.round(videoMeta.duration * fps) :
+        files.length;
     // ~3 MB/frame raw + ~5 MB COLMAP + ~50 MB ckpt + ~80 MB PLY
     const diskMB = Math.round(frames * 3 + 50 + 80 + uploadMB);
     // ~0.4 s/iter on RTX 3090 + ~10 s/frame for COLMAP
@@ -300,27 +306,28 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
 </div></body>`;
 
 // ── Video probing ─────────────────────────────────────────────────────────────
-const probeVideo = (file: File): Promise<{ duration: number; width: number; height: number; sizeMB: number } | null> =>
-    new Promise((resolve) => {
-        const url = URL.createObjectURL(file);
-        const v = document.createElement('video');
-        v.preload = 'metadata';
-        v.muted = true;
-        let done = false;
-        const finish = (result: any) => {
-            if (done) return;
-            done = true;
-            URL.revokeObjectURL(url);
-            resolve(result);
-        };
-        v.onloadedmetadata = () => finish({
-            duration: v.duration, width: v.videoWidth,
-            height: v.videoHeight, sizeMB: file.size / 1024 / 1024
-        });
-        v.onerror = () => finish(null);
-        setTimeout(() => finish(null), 5000);
-        v.src = url;
+const probeVideo = (file: File): Promise<{ duration: number; width: number; height: number; sizeMB: number } | null> => new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    let done = false;
+    const finish = (result: any) => {
+        if (done) return;
+        done = true;
+        URL.revokeObjectURL(url);
+        resolve(result);
+    };
+    v.onloadedmetadata = () => finish({
+        duration: v.duration,
+        width: v.videoWidth,
+        height: v.videoHeight,
+        sizeMB: file.size / 1024 / 1024
     });
+    v.onerror = () => finish(null);
+    setTimeout(() => finish(null), 5000);
+    v.src = url;
+});
 
 // ── Capture-quality hints ─────────────────────────────────────────────────────
 type Hint = { tone: 'good' | 'warn' | 'bad'; text: string };
@@ -506,7 +513,7 @@ class TrainPopup extends Container {
         };
 
         // ── Estimator ───────────────────────────────────────────────
-        const refreshEstimate = async () => {
+        const refreshEstimate = () => {
             if (pickedFiles.length === 0) {
                 estFrames.textContent = '—';
                 estUpload.textContent = '—';
@@ -554,9 +561,9 @@ class TrainPopup extends Container {
                 const m = data.metrics || {};
                 metCount.textContent = m.gaussian_count != null ? m.gaussian_count.toLocaleString() : '—';
                 metSize.textContent = m.file_size_mb != null ? `${m.file_size_mb} MB` : '—';
-                metDur.textContent = data.duration_sec != null
-                    ? `${Math.floor(data.duration_sec / 60)}m ${Math.round(data.duration_sec % 60)}s`
-                    : '—';
+                metDur.textContent = data.duration_sec != null ?
+                    `${Math.floor(data.duration_sec / 60)}m ${Math.round(data.duration_sec % 60)}s` :
+                    '—';
                 metricsBox.removeAttribute('hidden');
             } catch { /* ignore */ }
         };
@@ -611,7 +618,9 @@ class TrainPopup extends Container {
         };
         const notify = (title: string, body: string) => {
             if ('Notification' in window && Notification.permission === 'granted') {
-                try { new Notification(title, { body, icon: '/favicon.ico' }); } catch { /* ignore */ }
+                try {
+                    new Notification(title, { body, icon: '/favicon.ico' });
+                } catch { /* ignore */ }
             }
         };
 
@@ -829,12 +838,16 @@ class TrainPopup extends Container {
 
                 const loadBtn = document.createElement('button'); loadBtn.className = 'tk-recent-load'; loadBtn.type = 'button';
                 loadBtn.textContent = 'load →';
-                loadBtn.onclick = (ev) => { ev.stopPropagation(); void loadJobIntoEditor(j.id, j.name); };
+                loadBtn.onclick = (ev) => {
+                    ev.stopPropagation(); void loadJobIntoEditor(j.id, j.name);
+                };
 
                 const dlBtn = document.createElement('button'); dlBtn.className = 'tk-recent-dl'; dlBtn.type = 'button';
                 dlBtn.title = 'Save .ply to disk';
                 dlBtn.textContent = '↓';
-                dlBtn.onclick = (ev) => { ev.stopPropagation(); downloadPly(j.id, j.name); };
+                dlBtn.onclick = (ev) => {
+                    ev.stopPropagation(); downloadPly(j.id, j.name);
+                };
 
                 const delBtn = document.createElement('button'); delBtn.className = 'tk-recent-del'; delBtn.type = 'button';
                 delBtn.textContent = '×';
@@ -886,9 +899,15 @@ class TrainPopup extends Container {
                         s.stage === 'failed' ? 'err' : s.stage === 'cancelled' ? 'warn' : 'ok');
                     lastStage = s.stage;
                 }
-                if (s.stage === 'done') { src.close(); resolve(); }
-                if (s.stage === 'failed') { src.close(); reject(new Error(s.error || s.message || 'failed')); }
-                if (s.stage === 'cancelled') { src.close(); reject(new Error('cancelled')); }
+                if (s.stage === 'done') {
+                    src.close(); resolve();
+                }
+                if (s.stage === 'failed') {
+                    src.close(); reject(new Error(s.error || s.message || 'failed'));
+                }
+                if (s.stage === 'cancelled') {
+                    src.close(); reject(new Error('cancelled'));
+                }
             });
             src.addEventListener('error', () => { /* auto-reconnect */ });
         });
@@ -944,9 +963,9 @@ class TrainPopup extends Container {
         // ── File picking / drag-and-drop ────────────────────────────
         const acceptFiles = (files: File[]) => {
             const hasVideo = files.some(f => isVideoFile(f.name));
-            pickedFiles = hasVideo
-                ? files.filter(f => isVideoFile(f.name)).slice(0, 1)
-                : files.filter(f => isImageFile(f.name));
+            pickedFiles = hasVideo ?
+                files.filter(f => isVideoFile(f.name)).slice(0, 1) :
+                files.filter(f => isImageFile(f.name));
             refreshSource();
         };
 
@@ -980,7 +999,7 @@ class TrainPopup extends Container {
         const MATCHER_HINTS: Record<string, string> = {
             sequential: 'frame-ordered · fastest',
             vocab_tree: 'unordered · vocab tree · robust',
-            exhaustive: 'unordered · brute-force · slow',
+            exhaustive: 'unordered · brute-force · slow'
         };
         matcherWrap.querySelectorAll('button').forEach((b) => {
             b.addEventListener('click', () => {
@@ -1060,8 +1079,11 @@ class TrainPopup extends Container {
         // ── Keyboard handler ────────────────────────────────────────
         let onCloseResolve: (() => void) | null = null;
         const keydown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') { e.stopPropagation(); onCloseResolve?.(); }
-            else { e.stopPropagation(); }
+            if (e.key === 'Escape') {
+                e.stopPropagation(); onCloseResolve?.();
+            } else {
+                e.stopPropagation();
+            }
         };
 
         // ── Show / Hide ─────────────────────────────────────────────
@@ -1081,15 +1103,17 @@ class TrainPopup extends Container {
             this.dom.focus();
 
             // Async init — don't block
-            void checkBackend().then(online => {
+            checkBackend().then((online) => {
                 if (online) {
-                    void Promise.all([loadGpuInfo(), refreshRecent()]);
+                    Promise.all([loadGpuInfo(), refreshRecent()]).catch(() => undefined);
                     startGpuLivePoll();
                 }
-            });
+            }).catch(() => undefined);
 
             return new Promise<void>((resolve) => {
-                onCloseResolve = () => { resolve(); this.hide(); };
+                onCloseResolve = () => {
+                    resolve(); this.hide();
+                };
                 cancelBtn.onclick = () => onCloseResolve?.();
 
                 abortBtn.onclick = async () => {
@@ -1122,7 +1146,7 @@ class TrainPopup extends Container {
                         setState('done');
                         statusEl.textContent = 'DONE';
                         notify('OneClick SPLAT — training complete', `${id.slice(0, 8)} is ready to load`);
-                        void showMetrics(id);
+                        showMetrics(id).catch(() => undefined);
                         appendLog('LOAD', 'loading PLY into editor…', 'ok');
                         const file = await fetchPlyAsFile(id);
                         await events.invoke('import', [{ filename: file.name, contents: file }]);
@@ -1133,7 +1157,7 @@ class TrainPopup extends Container {
                         abortBtn.setAttribute('hidden', '');
                         activeJob = null;
                         stopRawLogPoll();
-                        void refreshRecent();
+                        refreshRecent().catch(() => undefined);
                     } catch (e: any) {
                         const isCancelled = String(e?.message ?? '').toLowerCase().includes('cancel');
                         if (isCancelled) {
@@ -1155,7 +1179,7 @@ class TrainPopup extends Container {
                         abortBtn.setAttribute('hidden', '');
                         activeJob = null;
                         stopRawLogPoll();
-                        void refreshRecent();
+                        refreshRecent().catch(() => undefined);
                     }
                 };
             }).finally(() => {

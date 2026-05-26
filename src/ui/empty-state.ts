@@ -167,8 +167,12 @@ class EmptyState extends Container {
         // initial check after a tick so other systems are ready
         setTimeout(refresh, 50);
 
-        this.show = () => { this.hidden = false; stage.dataset.state = 'visible'; };
-        this.hide = () => { this.hidden = true; };
+        this.show = () => {
+            this.hidden = false; stage.dataset.state = 'visible';
+        };
+        this.hide = () => {
+            this.hidden = true;
+        };
         this.destroy = () => {
             clearInterval(utcTimer);
             window.removeEventListener('pointermove', onMove);
