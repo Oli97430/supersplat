@@ -397,17 +397,35 @@ if ($basePyPrefix -and (Test-Path (Join-Path $basePyPrefix "libs\python310.lib")
     Log "  WARN: base_prefix python310.lib not found, gsplat link will fail"
 }
 
-# 9b. Patch gsplat's _backend.py to pass `/Zc:preprocessor` and the
-# CCCL_IGNORE macro to cl.exe. CUDA 13.x CCCL headers refuse to compile
-# without the conforming preprocessor. We also strip the old `-ccbin`
-# injection because nvcc 13.x finds cl.exe on PATH and a `-ccbin` pointing
-# at an NTFS junction breaks cudafe++'s relative path navigation.
+# 9b. Download the prebuilt gsplat_cuda.pyd. We host a copy compiled against
+# torch 2.1.2+cu118 with Python 3.10 in the GitHub release assets. Shipping
+# this lets users without MSVC/CUDA Toolkit skip the JIT compile entirely.
+$gsplatPkgDir = Join-Path $Venv "Lib\site-packages\gsplat"
+if (Test-Path $gsplatPkgDir) {
+    $prebuiltDest = Join-Path $gsplatPkgDir "_ocs_prebuilt.pyd"
+    if (-not (Test-Path $prebuiltDest)) {
+        Log "[POST] Downloading prebuilt gsplat_cuda.pyd"
+        $pyduUrl = "https://github.com/Oli97430/supersplat/releases/download/v2.27.19-train/gsplat_cuda-py310-torch212-cu118-msvc1944.pyd"
+        try {
+            Download-File $pyduUrl $prebuiltDest
+            Log "  prebuilt placed at $prebuiltDest"
+        } catch {
+            Log "  WARN: prebuilt download failed -- JIT compile will be used on first training. $($_.ToString())"
+        }
+    } else {
+        Log "  prebuilt already present"
+    }
+}
+
+# 9c. Patch gsplat's _backend.py to:
+#  - prefer the prebuilt _ocs_prebuilt.pyd if it was downloaded above
+#  - fall back to JIT with /Zc:preprocessor + CCCL_IGNORE macro for CUDA 13.x
 $bp = Join-Path $Venv "Lib\site-packages\gsplat\cuda\_backend.py"
 if (Test-Path $bp) {
-    Log "[POST] Patching gsplat _backend.py for CUDA 13.x compatibility"
+    Log "[POST] Patching gsplat _backend.py (prebuilt loader + CUDA 13.x JIT flags)"
     $content = [System.IO.File]::ReadAllText($bp, [System.Text.UTF8Encoding]::new($false))
 
-    # Add /Zc:preprocessor + CCCL macro to extra_cuda_cflags (both branches)
+    # Add /Zc:preprocessor for the JIT fallback path
     $old1 = 'extra_cuda_cflags = ["-O3", "--use_fast_math"]'
     $new1 = 'extra_cuda_cflags = ["-O3", "--use_fast_math", "-Xcompiler", "/Zc:preprocessor", "-DCCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING"]'
     if ($content.Contains($old1) -and -not $content.Contains('/Zc:preprocessor')) {
@@ -415,11 +433,48 @@ if (Test-Path $bp) {
         $old2 = 'extra_cuda_cflags = ["-O3"]'
         $new2 = 'extra_cuda_cflags = ["-O3", "-Xcompiler", "/Zc:preprocessor", "-DCCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING"]'
         if ($content.Contains($old2)) { $content = $content.Replace($old2, $new2) }
-        [System.IO.File]::WriteAllText($bp, $content, [System.Text.UTF8Encoding]::new($false))
-        Log "  patched extra_cuda_cflags with /Zc:preprocessor"
-    } else {
-        Log "  already patched or marker missing -- skipping"
+        Log "  added /Zc:preprocessor to extra_cuda_cflags"
     }
+
+    # Inject prebuilt loader BEFORE the existing `try: from gsplat import csrc`
+    # block. We wrap the existing from-import in `if _C is None:` so JIT only
+    # runs as fallback when the prebuilt didn't load. gsplat 1.0 ships with LF
+    # line endings -- normalize the patch strings to LF so .Contains/.Replace
+    # work regardless of how the package was installed.
+    if (-not $content.Contains('_OCS_PREBUILT')) {
+        # Normalize content to LF for matching
+        $contentLF = $content.Replace("`r`n", "`n")
+        $oldBlock = "_C = None`n`ntry:`n    # try to import the compiled module (via setup.py)`n    from gsplat import csrc as _C"
+        $newBlock = (@'
+_C = None
+
+# OneClick SPLAT prebuilt loader -- bypass JIT when _ocs_prebuilt.pyd is shipped
+_OCS_PREBUILT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "_ocs_prebuilt.pyd")
+if os.path.exists(_OCS_PREBUILT):
+    try:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("gsplat_cuda", _OCS_PREBUILT)
+        _C = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_C)
+    except Exception:
+        _C = None
+
+try:
+    # try to import the compiled module (via setup.py)
+    if _C is None:
+        from gsplat import csrc as _C
+'@).Replace("`r`n", "`n")
+        if ($contentLF.Contains($oldBlock)) {
+            $content = $contentLF.Replace($oldBlock, $newBlock)
+            Log "  injected prebuilt loader"
+        } else {
+            Log "  WARN: _C = None / try: marker block not found, prebuilt loader not added"
+        }
+    } else {
+        Log "  prebuilt loader already present"
+    }
+
+    [System.IO.File]::WriteAllText($bp, $content, [System.Text.UTF8Encoding]::new($false))
 }
 
 Log "=== install-deps COMPLETE ==="
