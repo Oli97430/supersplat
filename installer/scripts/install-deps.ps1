@@ -156,7 +156,21 @@ Log "Using Python: $Python310"
 # 2. Create venv
 # ─────────────────────────────────────────────────────────────────────────────
 $Venv = Join-Path $AppDir "venv"
-if (-not (Test-Path "$Venv\Scripts\python.exe")) {
+# Detect broken venv: python.exe exists but pyvenv.cfg is missing. This
+# happens when a previous uninstall removed the venv but couldn't delete
+# python.exe due to file locks. Recreate from scratch in that case.
+$venvHealthy = (Test-Path "$Venv\Scripts\python.exe") -and (Test-Path "$Venv\pyvenv.cfg")
+if (-not $venvHealthy) {
+    if (Test-Path $Venv) {
+        Log "Existing venv at $Venv is broken (missing pyvenv.cfg) -- wiping"
+        Remove-Item -Recurse -Force $Venv -ErrorAction Continue
+        Start-Sleep -Seconds 1
+        if (Test-Path $Venv) {
+            # Files locked -- try again after a moment
+            Start-Sleep -Seconds 2
+            Remove-Item -Recurse -Force $Venv -ErrorAction Continue
+        }
+    }
     Log "Creating venv at $Venv"
     & $Python310 -m venv $Venv
     if ($LASTEXITCODE -ne 0) { throw "venv creation failed" }
