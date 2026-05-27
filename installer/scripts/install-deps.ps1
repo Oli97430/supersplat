@@ -418,13 +418,23 @@ $gsplatPkgDir = Join-Path $Venv "Lib\site-packages\gsplat"
 if (Test-Path $gsplatPkgDir) {
     $prebuiltDest = Join-Path $gsplatPkgDir "_ocs_prebuilt.pyd"
     if (-not (Test-Path $prebuiltDest)) {
-        Log "[POST] Downloading prebuilt gsplat_cuda.pyd (multi-arch Turing/Ampere/Ada)"
-        $pyduUrl = "https://github.com/Oli97430/supersplat/releases/download/v2.27.22-train/gsplat_cuda-py310-torch212-cu118-multiarch.pyd"
-        try {
-            Download-File $pyduUrl $prebuiltDest
+        # Prefer the bundled copy (shipped in the installer at {app}\prebuilt\).
+        # Fall back to downloading from the GitHub release if the bundle isn't
+        # there -- this lets devs run install-deps standalone too.
+        $bundled = Join-Path $AppDir "prebuilt\gsplat_cuda-py310-torch212-cu118-multiarch.pyd"
+        if (Test-Path $bundled) {
+            Log "[POST] Copying bundled prebuilt gsplat_cuda.pyd (multi-arch Turing/Ampere/Ada)"
+            Copy-Item $bundled $prebuiltDest -Force
             Log "  prebuilt placed at $prebuiltDest"
-        } catch {
-            Log "  WARN: prebuilt download failed -- JIT compile will be used on first training. $($_.ToString())"
+        } else {
+            Log "[POST] Downloading prebuilt gsplat_cuda.pyd (multi-arch Turing/Ampere/Ada)"
+            $pyduUrl = "https://github.com/Oli97430/supersplat/releases/download/v2.27.22-train/gsplat_cuda-py310-torch212-cu118-multiarch.pyd"
+            try {
+                Download-File $pyduUrl $prebuiltDest
+                Log "  prebuilt placed at $prebuiltDest"
+            } catch {
+                Log "  WARN: prebuilt download failed -- JIT compile will be used on first training. $($_.ToString())"
+            }
         }
     } else {
         Log "  prebuilt already present"

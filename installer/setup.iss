@@ -7,7 +7,7 @@
 ; ============================================================================
 
 #define MyAppName         "OneClick SPLAT"
-#define MyAppVersion      "2.27.23"
+#define MyAppVersion      "2.27.24"
 #define MyAppPublisher    "Oli97430"
 #define MyAppURL          "https://github.com/Oli97430/supersplat"
 #define MyAppExeName      "OneClickSPLAT.exe"
@@ -70,6 +70,12 @@ Source: "scripts\update.ps1";        DestDir: "{app}\scripts"; Flags: ignorevers
 ; ── Assets ─────────────────────────────────────────────────────────────────
 Source: "assets\icon.ico";   DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "assets\README.txt"; DestDir: "{app}";        Flags: ignoreversion isreadme
+
+; ── Pre-built gsplat CUDA extension (Turing/Ampere/Ada multi-arch) ─────────
+; Compiled with torch 2.1.2+cu118 + MSVC 14.44 + nvcc 13.2.
+; install-deps copies this into the venv post-install so users without
+; MSVC/CUDA never have to JIT compile gsplat.
+Source: "dist\gsplat_cuda-py310-torch212-cu118-multiarch.pyd"; DestDir: "{app}\prebuilt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\OneClick SPLAT";       Filename: "{app}\OneClickSPLAT.cmd"; IconFilename: "{app}\assets\icon.ico"; WorkingDir: "{app}"
