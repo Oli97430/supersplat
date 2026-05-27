@@ -56,10 +56,48 @@ self.addEventListener('activate', (event) => {
         );
         // Claim all open clients so they start using the new SW now
         await self.clients.claim();
+        // Tell every controlled tab a new version just took over.
+        // The page-side listener (in index.html) renders an "update ready"
+        // banner so users don't have to know about Ctrl+Shift+R.
+        const clients = await self.clients.matchAll();
+        for (const c of clients) {
+            c.postMessage({ type: 'SW_UPDATED', version: appVersion });
+        }
     })());
 });
 
 self.addEventListener('fetch', (event) => {
+    const url = new URL(event.request.url);
+
+    // sw.js + index.html + manifest.json + the bare root: network-first so
+    // a freshly built bundle is picked up without the user having to wipe
+    // their browser cache. If the network is offline we still fall back to
+    // the cached copy.
+    const networkFirst =
+        url.pathname.endsWith('/sw.js') ||
+        url.pathname.endsWith('/index.html') ||
+        url.pathname.endsWith('/manifest.json') ||
+        url.pathname === '/' || url.pathname === '';
+    if (networkFirst) {
+        event.respondWith((async () => {
+            try {
+                const fresh = await fetch(event.request);
+                // Refresh the cached copy in the background so offline still works.
+                if (fresh.ok) {
+                    const clone = fresh.clone();
+                    caches.open(cacheName).then(c => c.put(event.request, clone)).catch(() => {});
+                }
+                return fresh;
+            } catch {
+                const cached = await caches.match(event.request);
+                if (cached) return cached;
+                throw new Error('offline and not cached');
+            }
+        })());
+        return;
+    }
+
+    // Everything else: cache-first (snappy + works offline).
     event.respondWith(
         caches.match(event.request)
         .then(response => response ?? fetch(event.request))

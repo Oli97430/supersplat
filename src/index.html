@@ -15,13 +15,66 @@
         <meta name="description" content="OneClick SPLAT is an advanced browser-based editor for capturing, refining and publishing 3D Gaussian Splats." />
         <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
 
-        <!-- Service worker -->
+        <!-- Service worker + auto-update banner -->
         <script>
             const sw = navigator.serviceWorker;
             if (sw) {
-                sw.register('./sw.js')
-                    .then(reg => console.log('service worker registered', reg))
+                sw.register('./sw.js', { updateViaCache: 'none' })
+                    .then((reg) => {
+                        console.log('service worker registered', reg);
+                        // Trigger an immediate freshness check so users on a
+                        // stale cached SW don't have to wait 24h for the
+                        // browser's own background check.
+                        reg.update().catch(() => {});
+                        // If there's already an updated worker waiting from a
+                        // previous session, show the banner straight away.
+                        if (reg.waiting && navigator.serviceWorker.controller) {
+                            showUpdateBanner('pending');
+                        }
+                    })
                     .catch(err => console.log('failed to register service worker', err));
+
+                // When a new SW activates and broadcasts its version, render
+                // a yellow "update ready" banner. Clicking reloads the page.
+                sw.addEventListener('message', (event) => {
+                    if (event.data && event.data.type === 'SW_UPDATED') {
+                        showUpdateBanner(event.data.version);
+                    }
+                });
+            }
+
+            function showUpdateBanner(version) {
+                if (document.getElementById('ocs-update-banner')) return;
+                const ready = () => {
+                    const b = document.createElement('div');
+                    b.id = 'ocs-update-banner';
+                    b.style.cssText = [
+                        'position:fixed',
+                        'top:0',
+                        'left:50%',
+                        'transform:translateX(-50%)',
+                        'z-index:99999',
+                        'background:#fbbf24',
+                        'color:#1f2937',
+                        'padding:10px 18px',
+                        'border-radius:0 0 10px 10px',
+                        'font-family:"JetBrains Mono",ui-monospace,monospace',
+                        'font-weight:700',
+                        'font-size:12px',
+                        'letter-spacing:0.04em',
+                        'cursor:pointer',
+                        'box-shadow:0 4px 16px rgba(0,0,0,0.45)',
+                        'user-select:none'
+                    ].join(';');
+                    const label = version === 'pending'
+                        ? 'UPDATE READY · CLICK TO RELOAD'
+                        : ('UPDATE v' + version + ' READY · CLICK TO RELOAD');
+                    b.textContent = label;
+                    b.onclick = () => location.reload();
+                    document.body.appendChild(b);
+                };
+                if (document.body) ready();
+                else document.addEventListener('DOMContentLoaded', ready);
             }
         </script>
     </head>
