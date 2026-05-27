@@ -404,8 +404,8 @@ $gsplatPkgDir = Join-Path $Venv "Lib\site-packages\gsplat"
 if (Test-Path $gsplatPkgDir) {
     $prebuiltDest = Join-Path $gsplatPkgDir "_ocs_prebuilt.pyd"
     if (-not (Test-Path $prebuiltDest)) {
-        Log "[POST] Downloading prebuilt gsplat_cuda.pyd"
-        $pyduUrl = "https://github.com/Oli97430/supersplat/releases/download/v2.27.19-train/gsplat_cuda-py310-torch212-cu118-msvc1944.pyd"
+        Log "[POST] Downloading prebuilt gsplat_cuda.pyd (multi-arch Turing/Ampere/Ada)"
+        $pyduUrl = "https://github.com/Oli97430/supersplat/releases/download/v2.27.22-train/gsplat_cuda-py310-torch212-cu118-multiarch.pyd"
         try {
             Download-File $pyduUrl $prebuiltDest
             Log "  prebuilt placed at $prebuiltDest"
