@@ -1264,14 +1264,32 @@ class TrainPopup extends Container {
                         appendLog('LOAD', 'loading PLY into editor…', 'ok');
                         const file = await fetchPlyAsFile(id);
                         await events.invoke('import', [{ filename: file.name, contents: file }]);
-                        appendLog('READY', 'splat scene ready', 'ok');
-                        setStartLabel('✓ VIEW IN EDITOR');
+                        appendLog('READY', 'splat scene ready — closing in 3s', 'ok');
+                        setStartLabel('✓ SPLAT LOADED');
                         startBtn.disabled = false;
                         startBtn.onclick = () => onCloseResolve?.();
                         abortBtn.setAttribute('hidden', '');
                         activeJob = null;
                         stopRawLogPoll();
                         refreshRecent().catch(() => undefined);
+
+                        // Auto-close after a short delay so the user sees the
+                        // success state but isn't forced to click the button.
+                        // Countdown is reflected in the log so it's obvious.
+                        let countdown = 3;
+                        const closeTimer = window.setInterval(() => {
+                            countdown -= 1;
+                            if (countdown <= 0) {
+                                window.clearInterval(closeTimer);
+                                onCloseResolve?.();
+                            } else {
+                                setStartLabel(`✓ SPLAT LOADED — CLOSING IN ${countdown}s`);
+                            }
+                        }, 1000);
+                        // Clicking the button cancels the auto-close (in case
+                        // the user wants to keep the popup open for the log).
+                        const cancelAutoClose = () => window.clearInterval(closeTimer);
+                        startBtn.addEventListener('click', cancelAutoClose, { once: true });
                     } catch (e: any) {
                         const isCancelled = String(e?.message ?? '').toLowerCase().includes('cancel');
                         if (isCancelled) {

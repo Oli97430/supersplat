@@ -290,11 +290,14 @@ Write-Host "      Backend ready (GPU: $($resp.gpu))" -ForegroundColor Green
 # ── 2. Frontend (separate ps1 file -- no quoting nightmares) ─────────────
 Write-Host "[2/3] Starting static frontend on http://127.0.0.1:3000"
 
+## Quote path args so spaces in "C:\Program Files\..." don't break the spawn.
+## Start-Process joins ArgumentList items with single spaces, so a path arg
+## containing spaces gets re-split by the child unless we wrap it in quotes.
 $frontendArgs = @(
     '-NoProfile',
     '-ExecutionPolicy', 'Bypass',
-    '-File', $ServeScript,
-    '-FrontendDir', $Frontend,
+    '-File', "`"$ServeScript`"",
+    '-FrontendDir', "`"$Frontend`"",
     '-Port', '3000'
 )
 $frontend = Start-Process -FilePath 'powershell.exe' `
