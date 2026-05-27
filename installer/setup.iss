@@ -7,7 +7,7 @@
 ; ============================================================================
 
 #define MyAppName         "OneClick SPLAT"
-#define MyAppVersion      "2.27.27"
+#define MyAppVersion      "2.27.28"
 #define MyAppPublisher    "Oli97430"
 #define MyAppURL          "https://github.com/Oli97430/supersplat"
 #define MyAppExeName      "OneClickSPLAT.exe"

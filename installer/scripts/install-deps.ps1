@@ -163,17 +163,48 @@ $venvHealthy = (Test-Path "$Venv\Scripts\python.exe") -and (Test-Path "$Venv\pyv
 if (-not $venvHealthy) {
     if (Test-Path $Venv) {
         Log "Existing venv at $Venv is broken (missing pyvenv.cfg) -- wiping"
-        Remove-Item -Recurse -Force $Venv -ErrorAction Continue
-        Start-Sleep -Seconds 1
-        if (Test-Path $Venv) {
-            # Files locked -- try again after a moment
-            Start-Sleep -Seconds 2
+        # First kill anything that holds files inside the venv. Otherwise
+        # python.exe / torch DLLs / etc. stay locked and Remove-Item fails
+        # mid-way, leaving the venv in an even more broken state and the
+        # subsequent `python -m venv` errors with "Permission denied".
+        try {
+            Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object {
+                $_.ExecutablePath -and $_.ExecutablePath.StartsWith($Venv, [System.StringComparison]::OrdinalIgnoreCase)
+            } | ForEach-Object {
+                Log "  killing locking process pid $($_.ProcessId) ($($_.Name))"
+                Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue
+            }
+            # Also kill uvicorn / serve-frontend that might be using the venv
+            # but were launched via cmd wrapper (so ExecutablePath wouldn't
+            # match $Venv directly).
+            Get-CimInstance Win32_Process -EA SilentlyContinue | Where-Object {
+                $_.CommandLine -and (
+                    $_.CommandLine -match 'uvicorn main:app' -or
+                    $_.CommandLine -match 'serve-frontend\.ps1' -or
+                    ($_.CommandLine -like "*$Venv*" -and $_.Name -ne 'powershell.exe')
+                )
+            } | ForEach-Object {
+                Log "  killing uvicorn/serve pid $($_.ProcessId)"
+                Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue
+            }
+            Start-Sleep -Seconds 3
+        } catch {
+            Log "  WARN: process-kill sweep failed: $($_.ToString())"
+        }
+        # Retry wipe up to 3 times -- filesystem sometimes needs a beat
+        # after a process is killed before the file handles fully drop.
+        for ($i = 1; $i -le 3; $i++) {
             Remove-Item -Recurse -Force $Venv -ErrorAction Continue
+            if (-not (Test-Path $Venv)) { break }
+            Start-Sleep -Seconds 2
+        }
+        if (Test-Path $Venv) {
+            throw "Could not wipe broken venv at $Venv. Close any OneClick SPLAT window (launcher console, browser tab) and re-run the installer."
         }
     }
     Log "Creating venv at $Venv"
     & $Python310 -m venv $Venv
-    if ($LASTEXITCODE -ne 0) { throw "venv creation failed" }
+    if ($LASTEXITCODE -ne 0) { throw "venv creation failed (exit $LASTEXITCODE)" }
 }
 $VenvPy  = Join-Path $Venv "Scripts\python.exe"
 $VenvPip = Join-Path $Venv "Scripts\pip.exe"
