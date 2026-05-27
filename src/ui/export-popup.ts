@@ -332,6 +332,7 @@ class ExportPopup extends Container {
                 ply: [compressRow, bandsRow, filenameRow],
                 splat: [filenameRow],
                 sog: [bandsRow, iterationsRow, filenameRow],
+                glb: [bandsRow, filenameRow],
                 viewer: [viewerTypeRow, animationRow, loopRow, colorRow, fovRow, bandsRow, filenameRow]
             }[exportType];
 
@@ -358,6 +359,9 @@ class ExportPopup extends Container {
                     break;
                 case 'sog':
                     updateExtension('.sog');
+                    break;
+                case 'glb':
+                    updateExtension('.glb');
                     break;
                 case 'viewer':
                     updateExtension(viewerTypeSelect.value === 'html' ? '.html' : '.zip');
@@ -411,6 +415,16 @@ class ExportPopup extends Container {
                     filename: filenameEntry.value,
                     splatIdx: 'all',
                     serializeSettings: { }
+                };
+            };
+
+            const assembleGlbOptions = () : SceneExportOptions => {
+                return {
+                    filename: filenameEntry.value,
+                    splatIdx: 'all',
+                    serializeSettings: {
+                        maxSHBands: bandsSlider.value
+                    }
                 };
             };
 
@@ -512,6 +526,9 @@ class ExportPopup extends Container {
                             break;
                         case 'sog':
                             resolve(assembleSogOptions());
+                            break;
+                        case 'glb':
+                            resolve(assembleGlbOptions());
                             break;
                         case 'viewer':
                             resolve(assembleViewerOptions());
