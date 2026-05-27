@@ -176,16 +176,24 @@ function Initialize-MsvcCudaEnv {
     # Prefer CUDA 12.x for newer MSVC compatibility. Fall back to 11.8 if only
     # that's installed. Torch cu118 runtime is forward-compatible with newer
     # nvcc-compiled binaries via the CUDA 11.x driver API.
+    # Walk newest -> oldest. CUDA 13.x is required for MSVC >= 14.44.
+    # nvcc is backward-compatible at compile time for older arches, so
+    # using 13.x with torch+cu118 at runtime works as long as the kernel
+    # ABI doesn't pull in symbols that aren't in cudart 11.8.
     $cudaCandidates = @(
-        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v12.8",
+        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v13.2",
+        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v13.1",
+        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v13.0",
         "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v12.9",
+        "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v12.8",
         "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v12.1",
         "${env:ProgramFiles}\NVIDIA GPU Computing Toolkit\CUDA\v11.8",
+        "$env:CUDA_PATH_V13_2",
         "$env:CUDA_PATH_V12_8",
         "$env:CUDA_PATH_V11_8"
     ) | Where-Object { $_ -and (Test-Path "$_\bin\nvcc.exe") } | Select-Object -First 1
     if (-not $cudaCandidates) {
-        Write-Host "  ! No CUDA Toolkit found (tried v12.8, v12.9, v12.1, v11.8)." -ForegroundColor Yellow
+        Write-Host "  ! No CUDA Toolkit found (tried v13.2 down to v11.8)." -ForegroundColor Yellow
         return $false
     }
     $env:CUDA_HOME = $cudaCandidates

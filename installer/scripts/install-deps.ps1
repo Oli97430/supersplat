@@ -367,6 +367,61 @@ set "PATH=$ColmapLib;$ToolsBin;$Venv\Scripts;%PATH%"
 set "QT_PLUGIN_PATH=$ColmapLib\plugins;%QT_PLUGIN_PATH%"
 "@ | Set-Content -Path $PathFile -Encoding ASCII
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Post-install patches needed for gsplat JIT compile on modern toolchains
+# ─────────────────────────────────────────────────────────────────────────────
+# 9a. python310.lib lives in the BASE Python install's libs/ dir, not in the
+# venv. torch's cpp_extension link rule expects to find it via venv\Scripts\libs
+# OR venv\libs. We junction both to the real libs/ so the link step succeeds.
+Log "[POST] Linking python310.lib into venv"
+$basePyPrefix = (& $VenvPy -c "import sys; print(sys.base_prefix)" 2>$null).Trim()
+if ($basePyPrefix -and (Test-Path (Join-Path $basePyPrefix "libs\python310.lib"))) {
+    $basePyLibs = Join-Path $basePyPrefix "libs"
+    foreach ($jPath in (Join-Path $Venv "libs"), (Join-Path $Venv "Scripts\libs")) {
+        if (Test-Path $jPath) {
+            $item = Get-Item $jPath -EA SilentlyContinue
+            if (-not ($item -and $item.LinkType -eq "Junction")) {
+                Remove-Item -Recurse -Force $jPath -EA SilentlyContinue
+            }
+        }
+        if (-not (Test-Path $jPath)) {
+            try {
+                New-Item -ItemType Junction -Path $jPath -Target $basePyLibs -EA Stop | Out-Null
+                Log "  junction $jPath -> $basePyLibs"
+            } catch {
+                Log "  WARN: failed to create junction $jPath -- $($_.ToString())"
+            }
+        }
+    }
+} else {
+    Log "  WARN: base_prefix python310.lib not found, gsplat link will fail"
+}
+
+# 9b. Patch gsplat's _backend.py to pass `/Zc:preprocessor` and the
+# CCCL_IGNORE macro to cl.exe. CUDA 13.x CCCL headers refuse to compile
+# without the conforming preprocessor. We also strip the old `-ccbin`
+# injection because nvcc 13.x finds cl.exe on PATH and a `-ccbin` pointing
+# at an NTFS junction breaks cudafe++'s relative path navigation.
+$bp = Join-Path $Venv "Lib\site-packages\gsplat\cuda\_backend.py"
+if (Test-Path $bp) {
+    Log "[POST] Patching gsplat _backend.py for CUDA 13.x compatibility"
+    $content = [System.IO.File]::ReadAllText($bp, [System.Text.UTF8Encoding]::new($false))
+
+    # Add /Zc:preprocessor + CCCL macro to extra_cuda_cflags (both branches)
+    $old1 = 'extra_cuda_cflags = ["-O3", "--use_fast_math"]'
+    $new1 = 'extra_cuda_cflags = ["-O3", "--use_fast_math", "-Xcompiler", "/Zc:preprocessor", "-DCCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING"]'
+    if ($content.Contains($old1) -and -not $content.Contains('/Zc:preprocessor')) {
+        $content = $content.Replace($old1, $new1)
+        $old2 = 'extra_cuda_cflags = ["-O3"]'
+        $new2 = 'extra_cuda_cflags = ["-O3", "-Xcompiler", "/Zc:preprocessor", "-DCCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING"]'
+        if ($content.Contains($old2)) { $content = $content.Replace($old2, $new2) }
+        [System.IO.File]::WriteAllText($bp, $content, [System.Text.UTF8Encoding]::new($false))
+        Log "  patched extra_cuda_cflags with /Zc:preprocessor"
+    } else {
+        Log "  already patched or marker missing -- skipping"
+    }
+}
+
 Log "=== install-deps COMPLETE ==="
 Log "Run $AppDir\OneClickSPLAT.cmd to start."
 
