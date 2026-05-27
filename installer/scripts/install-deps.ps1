@@ -387,6 +387,30 @@ set "QT_PLUGIN_PATH=$ColmapLib\plugins;%QT_PLUGIN_PATH%"
 # 9a. python310.lib lives in the BASE Python install's libs/ dir, not in the
 # venv. torch's cpp_extension link rule expects to find it via venv\Scripts\libs
 # OR venv\libs. We junction both to the real libs/ so the link step succeeds.
+# 9a-pre. Clean up stale leftovers from older OneClick SPLAT iterations.
+# Earlier dev releases shipped an NTFS junction at C:\OCS_MSVC, a no-op
+# `paths.env.cmd`, and a heavily-patched gsplat/_backend.py. None of that
+# is needed now that we ship a prebuilt gsplat_cuda.pyd. Remove the noise.
+Log "[POST] Removing stale leftovers from older installs"
+if (Test-Path 'C:\OCS_MSVC') {
+    try {
+        $junc = Get-Item 'C:\OCS_MSVC' -EA SilentlyContinue
+        if ($junc -and $junc.LinkType -eq 'Junction') {
+            $junc.Delete()
+            Log "  removed junction C:\OCS_MSVC"
+        }
+    } catch { Log "  WARN: failed to remove C:\OCS_MSVC: $($_.ToString())" }
+}
+$stalePaths = @(
+    (Join-Path $AppDir 'scripts\paths.env.cmd')
+)
+foreach ($p in $stalePaths) {
+    if (Test-Path $p) {
+        Remove-Item -Force $p -EA SilentlyContinue
+        Log "  removed stale $p"
+    }
+}
+
 Log "[POST] Linking python310.lib into venv"
 $basePyPrefix = (& $VenvPy -c "import sys; print(sys.base_prefix)" 2>$null).Trim()
 if ($basePyPrefix -and (Test-Path (Join-Path $basePyPrefix "libs\python310.lib"))) {
@@ -441,10 +465,24 @@ if (Test-Path $gsplatPkgDir) {
     }
 }
 
+# 9c-pre. If _backend.py carries dead hot-patches from an older install
+# (the `_OCS_CL_BIN` helper, the junction-pointer, etc.), force-reinstall
+# gsplat to restore vanilla -- then apply the minimal patches below.
+$bp = Join-Path $Venv "Lib\site-packages\gsplat\cuda\_backend.py"
+if (Test-Path $bp) {
+    $bpContent = [System.IO.File]::ReadAllText($bp)
+    if ($bpContent.Contains('_OCS_CL_BIN') -or $bpContent.Contains('OCS_MSVC')) {
+        Log "[POST] Detected legacy gsplat _backend.py patches -- reinstalling gsplat 1.0.0 to restore vanilla"
+        $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        try {
+            & $VenvPip install --force-reinstall --no-cache-dir --no-deps 'gsplat==1.0.0' | Out-Host
+        } finally { $ErrorActionPreference = $prevEAP }
+    }
+}
+
 # 9c. Patch gsplat's _backend.py to:
 #  - prefer the prebuilt _ocs_prebuilt.pyd if it was downloaded above
 #  - fall back to JIT with /Zc:preprocessor + CCCL_IGNORE macro for CUDA 13.x
-$bp = Join-Path $Venv "Lib\site-packages\gsplat\cuda\_backend.py"
 if (Test-Path $bp) {
     Log "[POST] Patching gsplat _backend.py (prebuilt loader + CUDA 13.x JIT flags)"
     $content = [System.IO.File]::ReadAllText($bp, [System.Text.UTF8Encoding]::new($false))

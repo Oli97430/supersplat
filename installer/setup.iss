@@ -7,7 +7,7 @@
 ; ============================================================================
 
 #define MyAppName         "OneClick SPLAT"
-#define MyAppVersion      "2.27.26"
+#define MyAppVersion      "2.27.27"
 #define MyAppPublisher    "Oli97430"
 #define MyAppURL          "https://github.com/Oli97430/supersplat"
 #define MyAppExeName      "OneClickSPLAT.exe"
@@ -140,6 +140,8 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    // Could trigger additional post-install logic here
+    // Drop a VERSION file the backend reads so /jobs metadata reflects the
+    // installed package version. Bumping MyAppVersion above is enough.
+    SaveStringToFile(ExpandConstant('{app}\server\VERSION'), '{#MyAppVersion}-train', False);
   end;
 end;

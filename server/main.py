@@ -58,6 +58,22 @@ AUTH_TOKEN = os.environ.get("OCS_AUTH_TOKEN", "").strip()
 RATE_LIMIT = int(os.environ.get("OCS_RATE_LIMIT", "20"))
 MIN_DISK_GB = float(os.environ.get("OCS_MIN_DISK_GB", "5.0"))
 
+# App version. Read from server/VERSION if the installer dropped one (so
+# /jobs metadata reflects the installed package version), otherwise fall
+# back to a baked-in default. Bumped here in tandem with package.json.
+_FALLBACK_VERSION = "2.27-train"
+def _read_app_version() -> str:
+    vf = Path(__file__).parent / "VERSION"
+    try:
+        if vf.is_file():
+            txt = vf.read_text(encoding="utf-8").strip()
+            if txt:
+                return txt
+    except Exception:
+        pass
+    return _FALLBACK_VERSION
+APP_VERSION = _read_app_version()
+
 # Jobs directory — defaults to a per-user location when installed system-wide,
 # falls back to ./jobs next to main.py for local development.
 def _resolve_jobs_root() -> Path:
@@ -417,7 +433,7 @@ async def disk():
 async def root():
     return {
         "service": "oneclick-splat-training",
-        "version": "2.27.3-train",
+        "version": APP_VERSION,
         "gpu": _gpu_info.get("label"),
         "auth_required": bool(AUTH_TOKEN),
         "rate_limit_per_hour": RATE_LIMIT,

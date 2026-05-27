@@ -73,12 +73,15 @@
 
 | Component | Minimum | Recommended |
 |---|---|---|
-| GPU | NVIDIA RTX (8 GB VRAM) | RTX 3090 / 4090 |
-| Python | 3.10 | 3.10 |
-| CUDA | 11.8 | 12.x |
+| OS | Windows 10 (1809+) | Windows 11 |
+| GPU | NVIDIA Turing (RTX 20xx, 8 GB VRAM) | RTX 3090 / 4090 |
+| GPU driver | supports CUDA 11.8 | CUDA 12+ |
+| Python | 3.10 *(installed automatically)* | 3.10 |
 | RAM | 16 GB | 32 GB |
 | Storage | 10 GB free | 50 GB free |
-| Tools | ffmpeg, COLMAP | — |
+| Tools | bundled — ffmpeg, COLMAP, gsplat .pyd | — |
+
+> The Windows installer ships a **pre-built `gsplat_cuda.pyd`** with native SASS for Turing (7.5) + Ampere (8.6) + Ada (8.9), plus PTX for newer cards. **No Visual Studio Build Tools or CUDA Toolkit required.** PyTorch + nerfstudio download themselves (~6 GB) on first run.
 
 ### Backend setup
 
