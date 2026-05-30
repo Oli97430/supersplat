@@ -795,6 +795,49 @@ def stage_colmap(cfg: JobConfig, cb: ProgressCb):
     _emit(cb, cfg, "colmap", 1.0, f"Camera poses recovered — {n_poses} frames registered")
 
 
+def _replicate_masks_downscaled(workspace_dir: Path, masks_dir: Path, log=None) -> None:
+    """Mirror the full-res masks into masks_<N>/ for every images_<N>/ folder
+    that ns-process-data generated.
+
+    nerfstudio auto-picks a training downscale (e.g. 2) based on which
+    images_<N>/ folder exists, then looks for masks at the SAME level
+    (masks_2/...). Since we generate masks after ns-process-data ran, those
+    folders don't exist yet — without this, training dies with
+    FileNotFoundError: masks_2/frame_xxxxx.png.
+
+    splatfacto asserts the mask and image have identical H,W, so we resize
+    each mask to the *exact* size of the matching downscaled image, using
+    NEAREST so the mask stays binary."""
+    try:
+        from PIL import Image  # type: ignore
+    except ImportError:
+        return
+    for img_dir in sorted(workspace_dir.glob("images_*")):
+        suffix = img_dir.name.split("_", 1)[1]
+        if not suffix.isdigit():
+            continue
+        mdir = workspace_dir / f"masks_{suffix}"
+        mdir.mkdir(exist_ok=True)
+        made = 0
+        for mp in masks_dir.glob("*.png"):
+            dst = mdir / mp.name
+            if dst.exists():
+                continue
+            img_match = next(iter(img_dir.glob(f"{mp.stem}.*")), None)
+            if img_match is None:
+                continue
+            try:
+                with Image.open(img_match) as di:
+                    tw, th = di.size
+                with Image.open(mp) as m:
+                    m.resize((tw, th), Image.NEAREST).save(dst)
+                made += 1
+            except Exception:
+                pass
+        if made and log:
+            log(f"✓ Replicated {made} masks → {mdir.name}")
+
+
 def apply_background_masks(cfg: JobConfig, cb: ProgressCb) -> int:
     """Isolate the subject in every registered frame with rembg and wire the
     masks into transforms.json.
@@ -839,6 +882,8 @@ def apply_background_masks(cfg: JobConfig, cb: ProgressCb) -> int:
         for fr in frames
     ):
         _log(cfg, f"✓ Reusing {len(frames)} existing background masks")
+        _replicate_masks_downscaled(cfg.workspace_dir, masks_dir,
+                                    log=lambda m: _log(cfg, m))
         return len(frames)
 
     _emit(cb, cfg, "colmap", 1.0, f"Isolating subject in {len(frames)} frames…")
@@ -848,12 +893,15 @@ def apply_background_masks(cfg: JobConfig, cb: ProgressCb) -> int:
         _log(cfg, f"rembg session failed ({cfg.mask_model}): {e}")
         return 0
 
-    written = 0
+    written = 0       # frames with a real rembg mask
+    fallback = 0      # frames that fell back to a full-frame (all-white) mask
+    unlocatable = 0   # frames whose image couldn't be found at all
     n = len(frames)
     for i, fr in enumerate(frames):
         _check_cancel(cfg)
         rel = fr.get("file_path", "")
         if not rel:
+            unlocatable += 1
             continue
         img_path = cfg.workspace_dir / rel
         if not img_path.exists():
@@ -864,27 +912,56 @@ def apply_background_masks(cfg: JobConfig, cb: ProgressCb) -> int:
             else:
                 hit = next(iter(cfg.workspace_dir.glob(f"images/{Path(rel).stem}.*")), None)
                 if hit is None:
+                    unlocatable += 1
                     continue
                 img_path = hit
+
+        mask_name = Path(rel).stem + ".png"
         try:
             with Image.open(img_path) as im:
                 mask = remove(im.convert("RGB"), session=sess,
                               only_mask=True, post_process_mask=True)
-            mask_name = Path(rel).stem + ".png"
             mask.save(masks_dir / mask_name)
             fr["mask_path"] = f"masks/{mask_name}"
             written += 1
         except Exception as e:
-            _log(cfg, f"mask failed for {img_path.name}: {e}")
+            # splatfacto requires masks for EVERY frame or none (it asserts
+            # len(masks)==len(images)). A per-frame rembg failure must not
+            # break that invariant, so we write an all-white mask (keep the
+            # whole frame) — a no-op for that frame's loss.
+            _log(cfg, f"mask failed for {img_path.name}: {e} — full-frame fallback")
+            try:
+                with Image.open(img_path) as im:
+                    Image.new("L", im.size, 255).save(masks_dir / mask_name)
+                fr["mask_path"] = f"masks/{mask_name}"
+                fallback += 1
+            except Exception:
+                unlocatable += 1
         if i % 5 == 0 or i == n - 1:
             _emit(cb, cfg, "colmap", 1.0, f"Isolating subject {i + 1}/{n}")
 
-    if written:
+    total = written + fallback
+    # If even one frame couldn't get a mask, the all-or-nothing invariant is
+    # broken — strip every mask_path and train on full frames rather than
+    # crash nerfstudio.
+    if unlocatable > 0:
+        for fr in frames:
+            fr.pop("mask_path", None)
         transforms.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        _log(cfg, f"✓ Background removed — {written}/{n} frames masked")
+        _log(cfg, f"Background removal aborted — {unlocatable} frames had no "
+                  f"locatable image; training on full frames to stay safe")
+        return 0
+
+    if total:
+        transforms.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        _log(cfg, f"✓ Background removed — {written}/{n} masked"
+                  + (f" ({fallback} full-frame fallbacks)" if fallback else ""))
+        # Mirror masks into the downscaled folders nerfstudio will train on.
+        _replicate_masks_downscaled(cfg.workspace_dir, masks_dir,
+                                    log=lambda m: _log(cfg, m))
     else:
         _log(cfg, "Background removal produced no masks — training on full frames")
-    return written
+    return total
 
 
 def stage_train(cfg: JobConfig, cb: ProgressCb):
