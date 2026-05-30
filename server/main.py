@@ -285,6 +285,30 @@ class JobRegistry:
                 self._cancel_events[jid] = ev
             return ev
 
+    def requeue(self, jid: str) -> bool:
+        """Reset a terminal job back to 'queued' and clear its cancel flag so
+        the worker can re-run it. The pipeline reuses any extracted frames,
+        COLMAP reconstruction and training checkpoint already on disk, so a
+        retry resumes instead of starting over. Returns False if the job is
+        still active (nothing to retry)."""
+        with self._lock:
+            st = self._jobs.get(jid)
+            if not st:
+                return False
+            if st.stage not in ("failed", "cancelled", "done"):
+                return False  # still running/queued
+            st.stage = "queued"
+            st.stage_progress = 0.0
+            st.overall = 0.0
+            st.message = "re-queued for retry"
+            st.error = None
+            st.finished_at = None
+            st.viewer_url = None
+            # Fresh cancel event (the old one may be set from a prior cancel).
+            self._cancel_events[jid] = threading.Event()
+        self._persist(st)
+        return True
+
     def register_config(self, jid: str, cfg: JobConfig):
         with self._lock:
             self._configs[jid] = cfg
@@ -630,6 +654,18 @@ async def cancel_job(jid: str):
     registry.get(jid)
     cancelled = registry.cancel(jid)
     return {"cancelled": jid, "was_live": cancelled}
+
+
+@app.post("/jobs/{jid}/retry", dependencies=[Depends(require_auth)])
+async def retry_job(jid: str):
+    """Resume a failed/cancelled job. Reuses frames, COLMAP and checkpoints
+    already on disk so it picks up where it left off rather than re-uploading
+    and recomputing everything."""
+    registry.get(jid)  # 404 if unknown
+    if not registry.requeue(jid):
+        raise HTTPException(409, "job is still running — cannot retry")
+    await registry._queue.put(jid)
+    return registry.get(jid).to_dict()
 
 
 @app.delete("/jobs/{jid}", dependencies=[Depends(require_auth)])

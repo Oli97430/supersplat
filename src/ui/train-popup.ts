@@ -572,6 +572,7 @@ class TrainPopup extends Container {
         let currentPreset = 'custom';
         let removeBackground = false;
         let refineGeometry = false;
+        let lastFailedJobId: string | null = null;  // for resume-on-retry
         let startedAt = 0;
         let activeJob: string | null = null;
         let videoMeta: { duration: number; width: number; height: number; sizeMB: number } | null = null;
@@ -867,7 +868,8 @@ class TrainPopup extends Container {
         const refreshSource = () => {
             if (pickedFiles.length === 0) {
                 sourceRow.setAttribute('hidden', '');
-                startBtn.disabled = true;
+                // Keep START live when a failed job can be resumed.
+                startBtn.disabled = lastFailedJobId === null;
                 void refreshHints();
                 return;
             }
@@ -1099,6 +1101,8 @@ class TrainPopup extends Container {
             pickedFiles = hasVideo ?
                 files.filter(f => isVideoFile(f.name)).slice(0, 1) :
                 files.filter(f => isImageFile(f.name));
+            // Picking fresh files means a fresh dispatch, not a resume.
+            lastFailedJobId = null;
             refreshSource();
         };
 
@@ -1281,7 +1285,9 @@ class TrainPopup extends Container {
                 };
 
                 startBtn.onclick = async () => {
-                    if (pickedFiles.length === 0) return;
+                    // Resume a previous failure when no new files are picked.
+                    const resumeId = pickedFiles.length === 0 ? lastFailedJobId : null;
+                    if (pickedFiles.length === 0 && !resumeId) return;
                     setState('queued');
                     startBtn.disabled = true;
                     setStartLabel('⟳ TRAINING…');
@@ -1291,12 +1297,23 @@ class TrainPopup extends Container {
 
                     const localId = Math.random().toString(36).slice(2, 6).toUpperCase();
                     jobidEl.textContent = localId;
-                    appendLog('DISPATCH', `local id ${localId} — uploading…`, 'system');
+                    appendLog('DISPATCH',
+                        resumeId ? `resuming ${resumeId.slice(0, 8)}…` : `local id ${localId} — uploading…`,
+                        'system');
 
                     try {
-                        const id = await submit();
+                        let id: string;
+                        if (resumeId) {
+                            const r = await fetch(`${getBackendUrl()}/jobs/${resumeId}/retry`, { method: 'POST' });
+                            if (!r.ok) throw new Error(`resume failed (${r.status})`);
+                            id = resumeId;
+                            lastFailedJobId = null;
+                            appendLog('RESUME', `↻ job ${id.slice(0, 8)} — reusing frames · COLMAP · checkpoint`, 'ok');
+                        } else {
+                            id = await submit();
+                            appendLog('UPLOAD', `→ backend job ${id.slice(0, 8)}`, 'ok');
+                        }
                         activeJob = id;
-                        appendLog('UPLOAD', `→ backend job ${id.slice(0, 8)}`, 'ok');
                         setState('running');
                         statusEl.textContent = 'TRAINING';
                         startRawLogPoll(id);
@@ -1337,12 +1354,16 @@ class TrainPopup extends Container {
                         const cancelAutoClose = () => window.clearInterval(closeTimer);
                         startBtn.addEventListener('click', cancelAutoClose, { once: true });
                     } catch (e: any) {
+                        // Remember the job so the next click resumes it
+                        // (reusing frames + COLMAP + checkpoint) instead of
+                        // re-uploading from scratch.
+                        lastFailedJobId = activeJob;
                         const isCancelled = String(e?.message ?? '').toLowerCase().includes('cancel');
                         if (isCancelled) {
                             setState('cancelled');
                             appendLog('STOP', 'job cancelled', 'warn');
-                            msg.textContent = 'cancelled — you can dispatch a new one';
-                            setStartLabel('RETRY');
+                            msg.textContent = 'cancelled — START to resume, or pick new files';
+                            setStartLabel('↻ RESUME');
                             statusEl.textContent = 'CANCELLED';
                         } else {
                             setState('failed');
@@ -1355,9 +1376,9 @@ class TrainPopup extends Container {
                                 msg.textContent = hint.title;
                             } else {
                                 appendLog('ERROR', raw, 'err');
-                                msg.textContent = 'pipeline halted — see log above';
+                                msg.textContent = 'pipeline halted — START to resume';
                             }
-                            setStartLabel('RETRY');
+                            setStartLabel(lastFailedJobId ? '↻ RESUME' : 'RETRY');
                             statusEl.textContent = 'FAILED';
                             notify('OneClick SPLAT — training failed', hint ? hint.title : (raw || 'See the console for details'));
                         }

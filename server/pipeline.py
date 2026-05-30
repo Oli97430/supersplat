@@ -643,7 +643,23 @@ def stage_prepare(cfg: JobConfig, cb: ProgressCb):
     cfg.workspace_dir.mkdir(parents=True, exist_ok=True)
 
 
+def _count_images(d: Path) -> int:
+    if not d.exists():
+        return 0
+    return sum(1 for p in d.iterdir()
+               if p.suffix.lower() in IMAGE_EXTS)
+
+
 def stage_extract_frames(cfg: JobConfig, cb: ProgressCb):
+    # Idempotent: on a retry the frames are already extracted+filtered. Reuse
+    # them so we don't re-run ffmpeg / blur / dedup (and don't risk dropping
+    # frames a second time).
+    existing = _count_images(cfg.images_dir)
+    if existing >= 20:
+        _log(cfg, f"✓ Reusing {existing} extracted frames")
+        _emit(cb, cfg, "extracting", 1.0, f"Reusing {existing} frames")
+        return
+
     kind = classify_upload(cfg)
     if kind == "photos":
         photos = [p for p in cfg.upload_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS]
@@ -695,6 +711,19 @@ def stage_extract_frames(cfg: JobConfig, cb: ProgressCb):
 
 
 def stage_colmap(cfg: JobConfig, cb: ProgressCb):
+    # Idempotent: on a retry the reconstruction is already on disk. Reuse it so
+    # we skip the slow feature-extraction / matching / mapping passes.
+    transforms = cfg.workspace_dir / "transforms.json"
+    if transforms.exists():
+        try:
+            n = len(json.loads(transforms.read_text(encoding="utf-8")).get("frames", []))
+        except Exception:
+            n = 0
+        if n >= MIN_POSES:
+            _log(cfg, f"✓ Reusing COLMAP reconstruction — {n} camera poses")
+            _emit(cb, cfg, "colmap", 1.0, f"Reusing {n} camera poses")
+            return
+
     _emit(cb, cfg, "colmap", 0.03, "Running COLMAP — feature extraction")
 
     state = {"phase": "feat", "last_p": 0.03}
@@ -803,6 +832,15 @@ def apply_background_masks(cfg: JobConfig, cb: ProgressCb) -> int:
     masks_dir = cfg.workspace_dir / "masks"
     masks_dir.mkdir(parents=True, exist_ok=True)
 
+    # Idempotent: on a retry the masks are usually already there. Skip if every
+    # frame already carries a mask_path that exists on disk.
+    if frames and all(
+        fr.get("mask_path") and (cfg.workspace_dir / fr["mask_path"]).exists()
+        for fr in frames
+    ):
+        _log(cfg, f"✓ Reusing {len(frames)} existing background masks")
+        return len(frames)
+
     _emit(cb, cfg, "colmap", 1.0, f"Isolating subject in {len(frames)} frames…")
     try:
         sess = new_session(cfg.mask_model)
@@ -865,8 +903,39 @@ def stage_train(cfg: JobConfig, cb: ProgressCb):
     last_step = [resume_step]
     last_emit_t = [0.0]
     viewer_url = [None]   # Captured from nerfstudio stdout; reused in subsequent emits
+    oom_seen = [False]    # Set if the run prints a CUDA out-of-memory error
+    # Rolling (time, step) samples for a live it/s → ETA estimate.
+    eta_samples: list[tuple[float, int]] = []
+
+    def _fmt_eta(seconds: float) -> str:
+        seconds = max(0, int(seconds))
+        if seconds >= 3600:
+            return f"~{seconds // 3600}h {seconds % 3600 // 60}m left"
+        if seconds >= 60:
+            return f"~{seconds // 60}m left"
+        return f"~{seconds}s left"
+
+    def _eta_suffix(step: int, now: float) -> str:
+        eta_samples.append((now, step))
+        # Keep a ~30 s window so the rate reflects current speed.
+        while len(eta_samples) > 2 and now - eta_samples[0][0] > 30:
+            eta_samples.pop(0)
+        if len(eta_samples) >= 2:
+            dt = eta_samples[-1][0] - eta_samples[0][0]
+            ds = eta_samples[-1][1] - eta_samples[0][1]
+            if dt > 0 and ds > 0:
+                rate = ds / dt
+                remaining = (cfg.max_iters - step) / rate
+                return " · " + _fmt_eta(remaining)
+        return ""
 
     def on_line(line: str):
+        # Detect CUDA OOM so we can retry at reduced resolution.
+        low = line.lower()
+        if ("out of memory" in low or "cuda error: out of memory" in low
+                or "torch.cuda.outofmemory" in low):
+            oom_seen[0] = True
+
         # Capture the live viewer URL once (first match wins).
         if viewer_url[0] is None:
             vm = _RE_VIEWER_URL.search(line)
@@ -897,54 +966,75 @@ def stage_train(cfg: JobConfig, cb: ProgressCb):
             return  # throttle to 1 emit/sec
         last_emit_t[0] = now
         p = step / max(total, 1)
+        eta = _eta_suffix(step, now)
         # Propagate the viewer URL on every subsequent emit so reconnecting
         # clients (detach -> reopen popup) immediately get the iframe.
         cb(JobUpdate(
             stage="training",
             stage_progress=p,
             overall=min(1.0, (STAGES.index("training") + p) / (len(STAGES) - 1)),
-            message=f"Step {step:,} / {total:,}",
+            message=f"Step {step:,} / {total:,}{eta}",
             viewer_url=viewer_url[0],
         ))
 
-    cmd = [
-        str(VENV_BIN / "ns-train.exe"), "splatfacto",
-        "--data", str(cfg.workspace_dir),
-        "--max-num-iterations", str(cfg.max_iters),
-        "--output-dir", str(cfg.outputs_dir),
-        "--vis", "viewer",
-        "--viewer.quit-on-train-completion", "True",
-    ]
+    def build_cmd(downscale: Optional[int]) -> list:
+        c = [
+            str(VENV_BIN / "ns-train.exe"), "splatfacto",
+            "--data", str(cfg.workspace_dir),
+            "--max-num-iterations", str(cfg.max_iters),
+            "--output-dir", str(cfg.outputs_dir),
+            "--vis", "viewer",
+            "--viewer.quit-on-train-completion", "True",
+        ]
+        if cfg.refine_geometry:
+            # Scale regularization penalises extreme anisotropy — kills the
+            # "needle"/spike gaussians that make splats look spiky. Cheap.
+            c += ["--pipeline.model.use-scale-regularization", "True"]
+            gpu = get_gpu_info()
+            total_gb = gpu.get("total_gb") or 0
+            # Bilateral grid compensates per-image exposure drift but costs
+            # VRAM — only on roomy cards, and never on an OOM retry.
+            if total_gb >= 12 and downscale is None:
+                c += ["--pipeline.model.use-bilateral-grid", "True"]
+        if resume_dir:
+            # Nerfstudio 1.x expects --load-dir to point at the EXPERIMENT
+            # folder (the one with config.yml), not nerfstudio_models/.
+            c += ["--load-dir", str(resume_dir)]
+        # The dataparser subcommand must come LAST. We only add it to halve
+        # the training resolution on an OOM retry (~4× less VRAM).
+        if downscale is not None:
+            c += ["nerfstudio-data", "--downscale-factor", str(downscale)]
+        return c
 
-    # ── Geometry-quality flags ────────────────────────────────────────────
     if cfg.refine_geometry:
-        # Scale regularization penalises extreme anisotropy — kills the
-        # "needle"/spike gaussians that make splats look spiky. Cheap.
-        cmd += ["--pipeline.model.use-scale-regularization", "True"]
-        # Bilateral grid compensates per-image exposure drift (handheld video
-        # with auto-exposure). It costs extra VRAM, so only enable it when the
-        # card has headroom — on small cards it would risk an OOM.
-        gpu = get_gpu_info()
-        total_gb = gpu.get("total_gb") or 0
-        if total_gb >= 12:
-            cmd += ["--pipeline.model.use-bilateral-grid", "True"]
-            _log(cfg, f"✓ Geometry refine: scale-reg + bilateral grid "
-                      f"(GPU {total_gb} GB)")
-        else:
-            _log(cfg, f"✓ Geometry refine: scale-reg "
-                      f"(bilateral grid skipped — GPU {total_gb} GB < 12 GB)")
-
+        _log(cfg, "✓ Geometry refine enabled (scale-reg" +
+                  (" + bilateral grid" if (get_gpu_info().get("total_gb") or 0) >= 12 else "") + ")")
     if resume_dir:
-        # Nerfstudio 1.x expects --load-dir to point at the EXPERIMENT folder
-        # (the one containing config.yml), not the nerfstudio_models/ subfolder.
-        # nerfstudio internally discovers the highest-step .ckpt under it.
-        cmd.extend(["--load-dir", str(resume_dir)])
         _log(cfg, f"↻ Resuming from step {resume_step:,} in {resume_dir.name}")
         _emit(cb, cfg, "training",
               resume_step / max(cfg.max_iters, 1),
               f"Resuming from step {resume_step:,}")
 
-    rc = _run(cmd, cfg, on_line=on_line)
+    # ── First attempt (full resolution) ───────────────────────────────────
+    rc = _run(build_cmd(None), cfg, on_line=on_line)
+
+    # ── CUDA OOM auto-recovery: retry once at half resolution ─────────────
+    if rc != 0 and oom_seen[0]:
+        _log(cfg, "!!! CUDA out of memory — retrying at half resolution "
+                  "(downscale 2, ~4× less VRAM)")
+        _emit(cb, cfg, "training", last_step[0] / max(cfg.max_iters, 1),
+              "GPU out of memory — retrying at half resolution")
+        oom_seen[0] = False
+        eta_samples.clear()
+        last_emit_t[0] = 0.0
+        rc = _run(build_cmd(2), cfg, on_line=on_line)
+        if rc != 0 and oom_seen[0]:
+            raise RuntimeError(
+                "ns-train ran out of GPU memory even at half resolution. "
+                "Free up VRAM (close other GPU apps), lower the iteration "
+                "count, or use a shorter capture."
+            )
+
     if rc != 0:
         raise RuntimeError(f"ns-train failed (exit {rc})")
     _emit(cb, cfg, "training", 1.0, f"Training complete — {last_step[0]:,} steps")
