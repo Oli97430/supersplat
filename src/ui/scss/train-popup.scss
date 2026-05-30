@@ -510,6 +510,65 @@ $lime:       #b5f200;
     }
 }
 
+// ── Enhance toggles (remove background / clean geometry) ────────────────────────
+.tk-toggles {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.tk-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: transparent;
+    border: 1px solid $line-bold;
+    color: $ink-dim;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    height: 26px;
+    padding: 0 11px;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    white-space: nowrap;
+
+    .tk-toggle-led {
+        width: 7px;
+        height: 7px;
+        border: 1px solid $ink-dim;
+        border-radius: 50%;
+        background: transparent;
+        transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+        flex: none;
+    }
+
+    &:hover:not(.is-active) {
+        background: rgba(244, 211, 94, 0.09);
+        color: $amber;
+        border-color: $amber;
+    }
+
+    &:active { transform: scale(0.96); }
+
+    &.is-active {
+        background: rgba(244, 211, 94, 0.14);
+        color: $amber;
+        border-color: $amber;
+
+        .tk-toggle-led {
+            background: $amber;
+            border-color: $amber;
+            box-shadow: 0 0 6px rgba(244, 211, 94, 0.8);
+        }
+    }
+
+    &:focus-visible {
+        outline: 2px solid $amber;
+        outline-offset: -2px;
+    }
+}
+
 // ── Iterations slider ──────────────────────────────────────────────────────────
 .tk-dial {
     position: relative;

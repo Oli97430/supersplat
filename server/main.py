@@ -123,6 +123,8 @@ class JobState:
     blur_threshold: float = 0.0
     dedupe_threshold: int = 0
     prune_opacity_logit: float = -2.5
+    remove_background: bool = False
+    refine_geometry: bool = False
     finished_at: Optional[float] = None
     metrics: Optional[dict] = None    # populated when done
     viewer_url: Optional[str] = None  # live nerfstudio viewer URL during training
@@ -149,7 +151,9 @@ class JobRegistry:
                matcher: str, max_iters: int, extract_fps: int,
                preset: str = "custom", blur_threshold: float = 0.0,
                dedupe_threshold: int = 0,
-               prune_opacity_logit: float = -2.5) -> JobState:
+               prune_opacity_logit: float = -2.5,
+               remove_background: bool = False,
+               refine_geometry: bool = False) -> JobState:
         jid = uuid.uuid4().hex[:12]
         st = JobState(
             id=jid, name=name, created_at=time.time(),
@@ -158,6 +162,8 @@ class JobRegistry:
             preset=preset, blur_threshold=blur_threshold,
             dedupe_threshold=dedupe_threshold,
             prune_opacity_logit=prune_opacity_logit,
+            remove_background=remove_background,
+            refine_geometry=refine_geometry,
         )
         with self._lock:
             self._jobs[jid] = st
@@ -320,6 +326,8 @@ async def worker():
             blur_threshold=st.blur_threshold,
             dedupe_threshold=st.dedupe_threshold,
             prune_opacity_logit=st.prune_opacity_logit,
+            remove_background=st.remove_background,
+            refine_geometry=st.refine_geometry,
             cancel_event=registry.get_cancel_event(jid),
         )
         registry.register_config(jid, cfg)
@@ -458,6 +466,8 @@ async def create_job(
     extract_fps: int = Form(2),
     name: str = Form(""),
     preset: str = Form("custom"),
+    remove_background: bool = Form(False),
+    refine_geometry: bool = Form(False),
 ):
     _check_rate_limit(request)
 
@@ -513,6 +523,8 @@ async def create_job(
         blur_threshold=blur_threshold,
         dedupe_threshold=dedupe_threshold,
         prune_opacity_logit=prune_opacity_logit,
+        remove_background=remove_background,
+        refine_geometry=refine_geometry,
     )
     upload_dir = JOBS_ROOT / st.id / "upload"
     upload_dir.mkdir(parents=True, exist_ok=True)

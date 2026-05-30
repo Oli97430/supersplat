@@ -325,16 +325,41 @@ if (-not $NSInstalled) {
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. FastAPI + utilities
 # ─────────────────────────────────────────────────────────────────────────────
-$rc = Invoke-Pip -Label "[STEP 5/6] Installing FastAPI server deps  (~50 MB, 30 s)" -Args @(
+$rc = Invoke-Pip -Label "[STEP 5/6] Installing FastAPI server deps + rembg  (~120 MB, 1 min)" -Args @(
     'install', '--no-cache-dir',
     'fastapi==0.115.0',
     'uvicorn[standard]==0.30.6',
     'sse-starlette==2.1.3',
     'python-multipart==0.0.9',
     'pillow',
-    'numpy'
+    'numpy',
+    # rembg powers the optional "remove background" feature. onnxruntime (CPU)
+    # is pinned to a build that ships cp310 wheels.
+    'rembg==2.0.59',
+    'onnxruntime==1.18.1'
 )
 if ($rc -ne 0) { throw "FastAPI deps install failed (exit $rc)" }
+
+# Pre-download the rembg background-removal model into a shared cache so the
+# (non-admin) backend can use it offline. Without this the model would only
+# download on first use, into whichever user happens to run the backend.
+$RembgHome = Join-Path $AppDir "models\rembg"
+New-Item -ItemType Directory -Path $RembgHome -Force | Out-Null
+if (-not (Test-Path (Join-Path $RembgHome "isnet-general-use.onnx"))) {
+    Log "[POST] Pre-downloading rembg model (isnet-general-use, ~170 MB)"
+    $env:U2NET_HOME = $RembgHome
+    $prevEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    try {
+        & $VenvPy -c "import os; os.environ['U2NET_HOME']=r'$RembgHome'; from rembg import new_session; new_session('isnet-general-use'); print('rembg model ready')" | Out-Host
+    } finally { $ErrorActionPreference = $prevEAP }
+    if (Test-Path (Join-Path $RembgHome "isnet-general-use.onnx")) {
+        Log "  rembg model cached at $RembgHome"
+    } else {
+        Log "  WARN: rembg model not cached -- will download on first use"
+    }
+} else {
+    Log "  rembg model already cached"
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. COLMAP (Windows pre-built binary)

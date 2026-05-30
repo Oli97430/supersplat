@@ -31,6 +31,10 @@ COLMAP_BIN = ROOT / "tools" / "colmap" / "bin"
 # the exit code) reports "Could not find COLMAP".
 COLMAP_LIB = ROOT / "tools" / "colmap" / "lib"
 FFMPEG_BIN = ROOT / "tools" / "ffmpeg" / "bin"
+# rembg stores its ONNX models under U2NET_HOME. We bundle/cache them in the
+# install dir so the (non-admin) backend finds the model the installer
+# pre-downloaded as admin, instead of re-fetching into the user's home.
+REMBG_HOME = ROOT / "models" / "rembg"
 
 STAGES = ["queued", "preparing", "extracting", "colmap", "training", "exporting", "done"]
 
@@ -322,6 +326,100 @@ def optimize_ply(in_path: Path, out_path: Path,
         return {"error": str(e)}
 
 
+def remove_floaters(in_path: Path, out_path: Path,
+                    nb_neighbors: int = 20, std_ratio: float = 2.0,
+                    max_drop_frac: float = 0.12) -> dict:
+    """Remove statistically-isolated "floater" gaussians.
+
+    3DGS training often leaves a cloud of stray gaussians far from the real
+    surface (artefacts of under-constrained regions). We treat the gaussian
+    centres as a point cloud and drop points whose mean distance to their
+    `nb_neighbors` nearest neighbours is more than `std_ratio` std-devs above
+    the global mean — open3d's statistical outlier removal.
+
+    Safe: only drops PLY rows (never moves/rotates), so spherical-harmonic
+    colour stays valid. Capped at `max_drop_frac`: if the filter wants to
+    remove more than that (likely eating thin legitimate geometry), we skip
+    and copy through untouched.
+
+    Returns a stats dict; on any failure returns {'error': ...} and leaves the
+    output as a plain copy of the input."""
+    if not in_path.exists():
+        return {"error": "input missing"}
+    try:
+        import numpy as np  # type: ignore
+        import open3d as o3d  # type: ignore
+    except ImportError as e:
+        return {"error": f"dependency missing: {e}"}
+
+    try:
+        with in_path.open("rb") as f:
+            header = bytearray()
+            while not header.endswith(b"end_header\n") and len(header) < 65536:
+                ch = f.read(1)
+                if not ch:
+                    return {"error": "header truncated"}
+                header += ch
+            data = f.read()
+
+        text = header.decode("ascii", errors="ignore")
+        m_count = re.search(r"element vertex (\d+)", text)
+        if not m_count:
+            return {"error": "no vertex count"}
+        count = int(m_count.group(1))
+        properties = re.findall(r"property float ([a-zA-Z_0-9]+)", text)
+        if not all(c in properties for c in ("x", "y", "z")):
+            return {"error": "no xyz fields"}
+        nfloats = len(properties)
+        expected = count * nfloats * 4
+        if len(data) < expected:
+            return {"error": "data truncated"}
+
+        arr = np.frombuffer(data[:expected], dtype=np.float32).reshape(count, nfloats)
+        xi, yi, zi = (properties.index(c) for c in ("x", "y", "z"))
+        pts = np.ascontiguousarray(arr[:, [xi, yi, zi]], dtype=np.float64)
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts)
+        _, keep_idx = pcd.remove_statistical_outlier(
+            nb_neighbors=nb_neighbors, std_ratio=std_ratio)
+        keep_idx = np.asarray(keep_idx, dtype=np.int64)
+        new_count = int(keep_idx.shape[0])
+        dropped = count - new_count
+
+        # Safety: never eat more than max_drop_frac of the model.
+        if count and (dropped / count) > max_drop_frac:
+            shutil.copy(in_path, out_path)
+            return {"skipped": True,
+                    "reason": f"would drop {dropped}/{count} "
+                              f"({dropped / count * 100:.1f}%) > cap",
+                    "original_count": count, "kept_count": count}
+
+        if dropped == 0:
+            shutil.copy(in_path, out_path)
+        else:
+            kept = arr[keep_idx]
+            new_header = text.replace(f"element vertex {count}",
+                                      f"element vertex {new_count}", 1)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with out_path.open("wb") as f:
+                f.write(new_header.encode("ascii"))
+                f.write(kept.tobytes())
+
+        return {
+            "original_count": count,
+            "kept_count": new_count,
+            "dropped_count": dropped,
+            "dropped_pct": round(dropped / count * 100, 1) if count else 0,
+        }
+    except Exception as e:
+        try:
+            shutil.copy(in_path, out_path)
+        except Exception:
+            pass
+        return {"error": str(e)}
+
+
 def find_latest_checkpoint(outputs_dir: Path) -> tuple[Optional[Path], int]:
     """Locate the highest-step checkpoint of a previous splatfacto run.
 
@@ -397,6 +495,9 @@ class JobConfig:
     blur_threshold: float = 0.0       # 0 disables blur filter
     dedupe_threshold: int = 0         # 0 disables dedup; 4 ≈ drop near-identical
     prune_opacity_logit: float = -2.5 # PLY pruning threshold (sigmoid≈0.076)
+    remove_background: bool = False   # rembg subject isolation (mask the loss)
+    mask_model: str = "isnet-general-use"  # rembg model for background removal
+    refine_geometry: bool = False     # scale-reg + bilateral grid + floater cull
     cancel_event: Optional[threading.Event] = None
     _proc_ref: dict = field(default_factory=dict)
 
@@ -665,6 +766,89 @@ def stage_colmap(cfg: JobConfig, cb: ProgressCb):
     _emit(cb, cfg, "colmap", 1.0, f"Camera poses recovered — {n_poses} frames registered")
 
 
+def apply_background_masks(cfg: JobConfig, cb: ProgressCb) -> int:
+    """Isolate the subject in every registered frame with rembg and wire the
+    masks into transforms.json.
+
+    Important: COLMAP already ran on the FULL images (background texture helps
+    pose estimation). We only mask the *training loss* — splatfacto multiplies
+    both the rendered and ground-truth image by the mask, so the background is
+    never supervised and its gaussians get culled. The result is a clean
+    subject floating without its environment.
+
+    Masks are written to workspace/masks/<stem>.png (255 = subject, 0 = bg)
+    and each frame in transforms.json gains a `mask_path`. Returns the number
+    of masks written (0 if rembg is unavailable or nothing to do)."""
+    transforms = cfg.workspace_dir / "transforms.json"
+    if not transforms.exists():
+        return 0
+    # Point rembg at the bundled model cache before it's imported, unless the
+    # launcher already set U2NET_HOME.
+    os.environ.setdefault("U2NET_HOME", str(REMBG_HOME))
+    try:
+        from rembg import new_session, remove  # type: ignore
+        from PIL import Image  # type: ignore
+    except ImportError:
+        _log(cfg, "rembg not installed — skipping background removal")
+        return 0
+
+    try:
+        data = json.loads(transforms.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return 0
+    frames = data.get("frames", [])
+    if not frames:
+        return 0
+
+    masks_dir = cfg.workspace_dir / "masks"
+    masks_dir.mkdir(parents=True, exist_ok=True)
+
+    _emit(cb, cfg, "colmap", 1.0, f"Isolating subject in {len(frames)} frames…")
+    try:
+        sess = new_session(cfg.mask_model)
+    except Exception as e:
+        _log(cfg, f"rembg session failed ({cfg.mask_model}): {e}")
+        return 0
+
+    written = 0
+    n = len(frames)
+    for i, fr in enumerate(frames):
+        _check_cancel(cfg)
+        rel = fr.get("file_path", "")
+        if not rel:
+            continue
+        img_path = cfg.workspace_dir / rel
+        if not img_path.exists():
+            # transforms file_path can omit the extension or the images/ prefix
+            cand = cfg.workspace_dir / "images" / Path(rel).name
+            if cand.exists():
+                img_path = cand
+            else:
+                hit = next(iter(cfg.workspace_dir.glob(f"images/{Path(rel).stem}.*")), None)
+                if hit is None:
+                    continue
+                img_path = hit
+        try:
+            with Image.open(img_path) as im:
+                mask = remove(im.convert("RGB"), session=sess,
+                              only_mask=True, post_process_mask=True)
+            mask_name = Path(rel).stem + ".png"
+            mask.save(masks_dir / mask_name)
+            fr["mask_path"] = f"masks/{mask_name}"
+            written += 1
+        except Exception as e:
+            _log(cfg, f"mask failed for {img_path.name}: {e}")
+        if i % 5 == 0 or i == n - 1:
+            _emit(cb, cfg, "colmap", 1.0, f"Isolating subject {i + 1}/{n}")
+
+    if written:
+        transforms.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        _log(cfg, f"✓ Background removed — {written}/{n} frames masked")
+    else:
+        _log(cfg, "Background removal produced no masks — training on full frames")
+    return written
+
+
 def stage_train(cfg: JobConfig, cb: ProgressCb):
     _emit(cb, cfg, "training", 0.01, f"Training splatfacto ({cfg.max_iters:,} iterations)")
     cfg.outputs_dir.mkdir(parents=True, exist_ok=True)
@@ -731,6 +915,25 @@ def stage_train(cfg: JobConfig, cb: ProgressCb):
         "--vis", "viewer",
         "--viewer.quit-on-train-completion", "True",
     ]
+
+    # ── Geometry-quality flags ────────────────────────────────────────────
+    if cfg.refine_geometry:
+        # Scale regularization penalises extreme anisotropy — kills the
+        # "needle"/spike gaussians that make splats look spiky. Cheap.
+        cmd += ["--pipeline.model.use-scale-regularization", "True"]
+        # Bilateral grid compensates per-image exposure drift (handheld video
+        # with auto-exposure). It costs extra VRAM, so only enable it when the
+        # card has headroom — on small cards it would risk an OOM.
+        gpu = get_gpu_info()
+        total_gb = gpu.get("total_gb") or 0
+        if total_gb >= 12:
+            cmd += ["--pipeline.model.use-bilateral-grid", "True"]
+            _log(cfg, f"✓ Geometry refine: scale-reg + bilateral grid "
+                      f"(GPU {total_gb} GB)")
+        else:
+            _log(cfg, f"✓ Geometry refine: scale-reg "
+                      f"(bilateral grid skipped — GPU {total_gb} GB < 12 GB)")
+
     if resume_dir:
         # Nerfstudio 1.x expects --load-dir to point at the EXPERIMENT folder
         # (the one containing config.yml), not the nerfstudio_models/ subfolder.
@@ -795,6 +998,24 @@ def stage_export(cfg: JobConfig, cb: ProgressCb):
                  f"(-{stats['size_reduction_pct']}%)")
             raw_backup.unlink(missing_ok=True)
 
+    # ── Floater removal (geometry refine) ─────────────────────────────────
+    if cfg.refine_geometry:
+        _emit(cb, cfg, "exporting", 0.93, "Removing floater gaussians")
+        floater_backup = cfg.ply_path.with_suffix(".prefloater.ply")
+        shutil.move(cfg.ply_path, floater_backup)
+        fstats = remove_floaters(floater_backup, cfg.ply_path)
+        if "error" in fstats:
+            shutil.move(floater_backup, cfg.ply_path)
+            _log(cfg, f"Floater removal skipped: {fstats['error']}")
+        elif fstats.get("skipped"):
+            shutil.move(floater_backup, cfg.ply_path)
+            _log(cfg, f"Floater removal skipped: {fstats.get('reason', 'cap hit')}")
+        else:
+            _log(cfg,
+                 f"✓ Removed {fstats['dropped_count']:,} floater gaussians "
+                 f"({fstats['dropped_pct']}%)")
+            floater_backup.unlink(missing_ok=True)
+
     _emit(cb, cfg, "exporting", 1.0, f"PLY ready: {cfg.ply_path.name}")
 
 
@@ -804,6 +1025,8 @@ def run_job(cfg: JobConfig, cb: ProgressCb):
         stage_prepare(cfg, cb)
         stage_extract_frames(cfg, cb)
         stage_colmap(cfg, cb)
+        if cfg.remove_background:
+            apply_background_masks(cfg, cb)
         stage_train(cfg, cb)
         stage_export(cfg, cb)
         _emit(cb, cfg, "done", 1.0, "Done")

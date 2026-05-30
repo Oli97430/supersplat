@@ -212,6 +212,11 @@ if (-not $msvcOk) {
 # ── Tell backend where to write job output ───────────────────────────────
 $env:OCS_JOBS_DIR = $JobsDir
 
+# ── rembg model cache (background-removal feature) ───────────────────────
+# Point rembg at the model the installer pre-downloaded so the backend
+# doesn't try to re-fetch it into the user's home on first use.
+$env:U2NET_HOME = Join-Path $AppDir "models\rembg"
+
 # ── Stop any prior backend from THIS install only ────────────────────────
 Get-Process python -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -eq $VenvPy } |

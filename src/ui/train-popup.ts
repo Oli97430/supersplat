@@ -287,6 +287,19 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                     </div>
                     <span class="tk-param-hint" data-tk-fps-hint>video &rarr; ~120 frames at 2 fps</span>
                 </div>
+
+                <div class="tk-param">
+                    <label>ENHANCE</label>
+                    <div class="tk-toggles">
+                        <button type="button" class="tk-toggle" data-tk-rembg aria-pressed="false">
+                            <span class="tk-toggle-led"></span>REMOVE&nbsp;BACKGROUND
+                        </button>
+                        <button type="button" class="tk-toggle" data-tk-refine aria-pressed="false">
+                            <span class="tk-toggle-led"></span>CLEAN&nbsp;GEOMETRY
+                        </button>
+                    </div>
+                    <span class="tk-param-hint" data-tk-enhance-hint>isolate subject &middot; cull floaters &middot; fix exposure</span>
+                </div>
             </div>
         </section>
 
@@ -518,6 +531,9 @@ class TrainPopup extends Container {
         const matcherHint     = q('[data-tk-matcher-hint]');
         const fpsWrap         = q('[data-tk-fps]');
         const fpsHint         = q('[data-tk-fps-hint]');
+        const rembgBtn        = q<HTMLButtonElement>('[data-tk-rembg]');
+        const refineBtn       = q<HTMLButtonElement>('[data-tk-refine]');
+        const enhanceHint     = q('[data-tk-enhance-hint]');
         const stages          = qa<HTMLLIElement>('[data-tk-stages] li');
         const fill            = q<HTMLDivElement>('[data-tk-fill]');
         const cursor          = q<HTMLDivElement>('[data-tk-cursor]');
@@ -554,6 +570,8 @@ class TrainPopup extends Container {
         let currentMatcher = 'sequential';
         let currentFps = 2;
         let currentPreset = 'custom';
+        let removeBackground = false;
+        let refineGeometry = false;
         let startedAt = 0;
         let activeJob: string | null = null;
         let videoMeta: { duration: number; width: number; height: number; sizeMB: number } | null = null;
@@ -974,6 +992,8 @@ class TrainPopup extends Container {
             fd.append('max_iters', itersSlider.value);
             fd.append('extract_fps', String(currentFps));
             fd.append('preset', currentPreset);
+            fd.append('remove_background', String(removeBackground));
+            fd.append('refine_geometry', String(refineGeometry));
             const r = await fetch(`${getBackendUrl()}/jobs`, { method: 'POST', body: fd });
             if (!r.ok) throw new Error(`upload ${r.status}: ${await r.text()}`);
             const j = await r.json();
@@ -1133,6 +1153,32 @@ class TrainPopup extends Container {
                 void refreshHints();
                 void refreshEstimate();
             });
+        });
+
+        // ── Enhance toggles (remove background / clean geometry) ────
+        const ENHANCE_HINTS = {
+            none:  'isolate subject · cull floaters · fix exposure',
+            rembg: 'subject isolated — background masked during training',
+            refine: 'scale-reg + bilateral grid + floater removal',
+            both:  'clean isolated subject — best for object captures',
+        };
+        const syncEnhanceHint = () => {
+            const key = removeBackground && refineGeometry ? 'both'
+                : removeBackground ? 'rembg'
+                    : refineGeometry ? 'refine' : 'none';
+            enhanceHint.textContent = ENHANCE_HINTS[key];
+        };
+        rembgBtn.addEventListener('click', () => {
+            removeBackground = !removeBackground;
+            rembgBtn.classList.toggle('is-active', removeBackground);
+            rembgBtn.setAttribute('aria-pressed', String(removeBackground));
+            syncEnhanceHint();
+        });
+        refineBtn.addEventListener('click', () => {
+            refineGeometry = !refineGeometry;
+            refineBtn.classList.toggle('is-active', refineGeometry);
+            refineBtn.setAttribute('aria-pressed', String(refineGeometry));
+            syncEnhanceHint();
         });
 
         const syncSlider = () => {
