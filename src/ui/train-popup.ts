@@ -19,7 +19,7 @@ const IMAGE_EXTS = ['.jpg', '.jpeg', '.png'];
 const isVideoFile = (name: string) => VIDEO_EXTS.some(e => name.toLowerCase().endsWith(e));
 const isImageFile = (name: string) => IMAGE_EXTS.some(e => name.toLowerCase().endsWith(e));
 
-const STAGE_ORDER = ['preparing', 'extracting', 'colmap', 'training', 'exporting', 'done'];
+const STAGE_ORDER = ['preparing', 'extracting', 'colmap', 'training', 'exporting', 'rendering', 'done'];
 const STAGE_LABELS: Record<string, string> = {
     queued: 'QUEUED',
     preparing: 'PREPARE',
@@ -27,6 +27,7 @@ const STAGE_LABELS: Record<string, string> = {
     colmap: 'COLMAP',
     training: 'TRAIN',
     exporting: 'EXPORT',
+    rendering: 'RENDER',
     done: 'DONE',
     failed: 'FAIL',
     cancelled: 'STOP'
@@ -252,6 +253,22 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
         </div>
     </div>
 
+    <!-- Turntable preview lightbox -->
+    <div class="tk-tt" hidden data-tk-tt>
+        <div class="tk-tt-card">
+            <div class="tk-tt-head">
+                <span class="tk-tt-title" data-tk-tt-title>TURNTABLE</span>
+                <button class="tk-tt-close" data-tk-tt-close type="button" title="Close">&times;</button>
+            </div>
+            <video class="tk-tt-video" data-tk-tt-video controls loop muted playsinline></video>
+            <div class="tk-tt-actions">
+                <button class="tk-btn tk-btn--ghost" data-tk-tt-save type="button">&#8595; SAVE MP4</button>
+                <button class="tk-btn tk-btn--ghost" data-tk-tt-copy type="button">&#8862; COPY LINK</button>
+                <a class="tk-tt-newtab" data-tk-tt-newtab target="_blank" rel="noopener">open &#8599;</a>
+            </div>
+        </div>
+    </div>
+
     <div class="tk-frame">
         <span class="tk-corner tk-tl">+</span>
         <span class="tk-corner tk-tr">+</span>
@@ -361,6 +378,9 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                         <button type="button" class="tk-toggle" data-tk-refine aria-pressed="false">
                             <span class="tk-toggle-led"></span>CLEAN&nbsp;GEOMETRY
                         </button>
+                        <button type="button" class="tk-toggle" data-tk-turntable aria-pressed="false">
+                            <span class="tk-toggle-led"></span>TURNTABLE&nbsp;MP4
+                        </button>
                     </div>
                     <span class="tk-param-hint" data-tk-enhance-hint>isolate subject &middot; cull floaters &middot; fix exposure</span>
                 </div>
@@ -397,7 +417,8 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                 <li data-stage="colmap"><span class="tk-stage-n">03</span><span>COLMAP</span></li>
                 <li data-stage="training"><span class="tk-stage-n">04</span><span>TRAIN</span></li>
                 <li data-stage="exporting"><span class="tk-stage-n">05</span><span>EXPORT</span></li>
-                <li data-stage="done"><span class="tk-stage-n">06</span><span>DONE</span></li>
+                <li data-stage="rendering"><span class="tk-stage-n">06</span><span>RENDER</span></li>
+                <li data-stage="done"><span class="tk-stage-n">07</span><span>DONE</span></li>
             </ol>
 
             <div class="tk-progress">
@@ -598,7 +619,15 @@ class TrainPopup extends Container {
         const fpsHint         = q('[data-tk-fps-hint]');
         const rembgBtn        = q<HTMLButtonElement>('[data-tk-rembg]');
         const refineBtn       = q<HTMLButtonElement>('[data-tk-refine]');
+        const turntableBtn    = q<HTMLButtonElement>('[data-tk-turntable]');
         const enhanceHint     = q('[data-tk-enhance-hint]');
+        const ttOverlay       = q<HTMLDivElement>('[data-tk-tt]');
+        const ttVideo         = q<HTMLVideoElement>('[data-tk-tt-video]');
+        const ttTitle         = q('[data-tk-tt-title]');
+        const ttCloseBtn      = q<HTMLButtonElement>('[data-tk-tt-close]');
+        const ttSaveBtn       = q<HTMLButtonElement>('[data-tk-tt-save]');
+        const ttCopyBtn       = q<HTMLButtonElement>('[data-tk-tt-copy]');
+        const ttNewtab        = q<HTMLAnchorElement>('[data-tk-tt-newtab]');
         const stages          = qa<HTMLLIElement>('[data-tk-stages] li');
         const fill            = q<HTMLDivElement>('[data-tk-fill]');
         const cursor          = q<HTMLDivElement>('[data-tk-cursor]');
@@ -637,6 +666,7 @@ class TrainPopup extends Container {
         let currentPreset = 'custom';
         let removeBackground = false;
         let refineGeometry = false;
+        let renderTurntable = false;
         let lastFailedJobId: string | null = null;  // for resume-on-retry
         let startedAt = 0;
         let activeJob: string | null = null;
@@ -998,6 +1028,46 @@ class TrainPopup extends Container {
             void refreshEstimate();
         };
 
+        // ── Turntable preview lightbox ──────────────────────────────
+        let ttCurrent: { id: string; name: string } | null = null;
+        const openTurntable = (id: string, name: string) => {
+            ttCurrent = { id, name };
+            const base = `${getBackendUrl()}/jobs/${id}/turntable.mp4`;
+            ttTitle.textContent = `TURNTABLE · ${name}`;
+            ttVideo.src = base;
+            ttNewtab.href = base;
+            ttOverlay.removeAttribute('hidden');
+            void ttVideo.play().catch(() => undefined);
+        };
+        const closeTurntable = () => {
+            ttOverlay.setAttribute('hidden', '');
+            ttVideo.pause();
+            ttVideo.removeAttribute('src');
+            ttVideo.load();
+        };
+        ttCloseBtn.addEventListener('click', closeTurntable);
+        ttOverlay.addEventListener('click', (ev) => {
+            if (ev.target === ttOverlay) closeTurntable();
+        });
+        ttSaveBtn.addEventListener('click', () => {
+            if (!ttCurrent) return;
+            const a = document.createElement('a');
+            a.href = `${getBackendUrl()}/jobs/${ttCurrent.id}/turntable.mp4?dl=1`;
+            a.download = `${ttCurrent.name}-turntable.mp4`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+        ttCopyBtn.addEventListener('click', async () => {
+            if (!ttCurrent) return;
+            try {
+                await navigator.clipboard.writeText(`${getBackendUrl()}/jobs/${ttCurrent.id}/turntable.mp4`);
+                ttCopyBtn.textContent = '✓ COPIED';
+                setTimeout(() => { ttCopyBtn.textContent = '⧉ COPY LINK'; }, 1400);
+            } catch { /* clipboard unavailable (non-secure context) */ }
+        });
+
         // ── Recent jobs ─────────────────────────────────────────────
         const downloadPly = (jobId: string, name: string) => {
             const a = document.createElement('a');
@@ -1062,6 +1132,16 @@ class TrainPopup extends Container {
                     ev.stopPropagation(); downloadPly(j.id, j.name);
                 };
 
+                let ttBtn: HTMLButtonElement | null = null;
+                if (j.has_turntable) {
+                    ttBtn = document.createElement('button');
+                    ttBtn.className = 'tk-recent-tt'; ttBtn.type = 'button';
+                    ttBtn.title = 'Turntable MP4'; ttBtn.textContent = '◷';
+                    ttBtn.onclick = (ev) => {
+                        ev.stopPropagation(); openTurntable(j.id, j.name);
+                    };
+                }
+
                 const delBtn = document.createElement('button'); delBtn.className = 'tk-recent-del'; delBtn.type = 'button';
                 delBtn.textContent = '×';
                 delBtn.title = 'Delete job';
@@ -1071,7 +1151,10 @@ class TrainPopup extends Container {
                     await refreshRecent();
                 };
 
-                li.append(thumb, stamp, id, name, meta, loadBtn, dlBtn, delBtn);
+                const tail: HTMLElement[] = [loadBtn];
+                if (ttBtn) tail.push(ttBtn);
+                tail.push(dlBtn, delBtn);
+                li.append(thumb, stamp, id, name, meta, ...tail);
                 recentList.appendChild(li);
             });
         };
@@ -1097,6 +1180,7 @@ class TrainPopup extends Container {
             fd.append('preset', currentPreset);
             fd.append('remove_background', String(removeBackground));
             fd.append('refine_geometry', String(refineGeometry));
+            fd.append('render_turntable', String(renderTurntable));
             const r = await fetch(`${getBackendUrl()}/jobs`, { method: 'POST', body: fd });
             if (!r.ok) throw new Error(`upload ${r.status}: ${await r.text()}`);
             const j = await r.json();
@@ -1294,7 +1378,9 @@ class TrainPopup extends Container {
             const key = removeBackground && refineGeometry ? 'both'
                 : removeBackground ? 'rembg'
                     : refineGeometry ? 'refine' : 'none';
-            enhanceHint.textContent = ENHANCE_HINTS[key];
+            let txt = ENHANCE_HINTS[key];
+            if (renderTurntable) txt += ' · + turntable MP4';
+            enhanceHint.textContent = txt;
         };
         rembgBtn.addEventListener('click', () => {
             removeBackground = !removeBackground;
@@ -1306,6 +1392,12 @@ class TrainPopup extends Container {
             refineGeometry = !refineGeometry;
             refineBtn.classList.toggle('is-active', refineGeometry);
             refineBtn.setAttribute('aria-pressed', String(refineGeometry));
+            syncEnhanceHint();
+        });
+        turntableBtn.addEventListener('click', () => {
+            renderTurntable = !renderTurntable;
+            turntableBtn.classList.toggle('is-active', renderTurntable);
+            turntableBtn.setAttribute('aria-pressed', String(renderTurntable));
             syncEnhanceHint();
         });
 

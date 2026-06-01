@@ -36,7 +36,7 @@ FFMPEG_BIN = ROOT / "tools" / "ffmpeg" / "bin"
 # pre-downloaded as admin, instead of re-fetching into the user's home.
 REMBG_HOME = ROOT / "models" / "rembg"
 
-STAGES = ["queued", "preparing", "extracting", "colmap", "training", "exporting", "done"]
+STAGES = ["queued", "preparing", "extracting", "colmap", "training", "exporting", "rendering", "done"]
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
@@ -639,6 +639,7 @@ class JobConfig:
     remove_background: bool = False   # rembg subject isolation (mask the loss)
     mask_model: str = "isnet-general-use"  # rembg model for background removal
     refine_geometry: bool = False     # scale-reg + bilateral grid + floater cull
+    render_turntable: bool = False    # render an orbit MP4 preview after export
     cancel_event: Optional[threading.Event] = None
     _proc_ref: dict = field(default_factory=dict)
 
@@ -665,6 +666,10 @@ class JobConfig:
     @property
     def ply_path(self) -> Path:
         return self.job_dir / "splat.ply"
+
+    @property
+    def turntable_path(self) -> Path:
+        return self.job_dir / "turntable.mp4"
 
     @property
     def log_path(self) -> Path:
@@ -1362,6 +1367,91 @@ def stage_export(cfg: JobConfig, cb: ProgressCb):
     _emit(cb, cfg, "exporting", 1.0, f"PLY ready: {cfg.ply_path.name}")
 
 
+def _find_trained_run(cfg: JobConfig) -> Optional[Path]:
+    """Locate the timestamped nerfstudio run dir that holds config.yml."""
+    base = cfg.outputs_dir / "workspace" / "splatfacto"
+    runs = sorted(base.iterdir(), key=lambda p: p.name, reverse=True) if base.exists() else []
+    if runs:
+        return runs[0]
+    for sub in cfg.outputs_dir.rglob("config.yml"):
+        return sub.parent
+    return None
+
+
+def _count_dataset_cameras(cfg: JobConfig) -> int:
+    """Best-effort count of training cameras from transforms.json (0 if unknown)."""
+    candidates = [cfg.workspace_dir / "transforms.json", *cfg.job_dir.rglob("transforms.json")]
+    for tf in candidates:
+        try:
+            if tf.exists():
+                frames = json.loads(tf.read_text(encoding="utf-8")).get("frames", [])
+                if frames:
+                    return len(frames)
+        except Exception:
+            continue
+    return 0
+
+
+def stage_render_turntable(cfg: JobConfig, cb: ProgressCb):
+    """Render an orbit/turntable MP4 from the trained model via ns-render.
+
+    Best-effort: the PLY is the primary deliverable, so a render failure is
+    logged and swallowed (never fails the job). The clip length is bounded to
+    ~5-7 s by deriving the interpolation step count from the camera count.
+    """
+    _emit(cb, cfg, "rendering", 0.05, "Rendering turntable preview")
+
+    out = cfg.turntable_path
+    # Idempotent: reuse a previously rendered clip.
+    if out.exists() and out.stat().st_size > 0:
+        _emit(cb, cfg, "rendering", 1.0, "Turntable ready (cached)")
+        return
+
+    run = _find_trained_run(cfg)
+    if run is None:
+        _log(cfg, "Turntable skipped: no trained model/config.yml found")
+        _emit(cb, cfg, "rendering", 1.0, "Turntable skipped (no model)")
+        return
+    config_yml = run / "config.yml"
+
+    # Interpolate through the real training cameras (order by proximity so an
+    # orbit capture reads as a smooth turntable). Bound total frames ~ 150.
+    n_cams = _count_dataset_cameras(cfg)
+    steps = 5 if n_cams <= 0 else max(2, min(12, round(150 / n_cams)))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        str(VENV_BIN / "ns-render.exe"), "interpolate",
+        "--load-config", str(config_yml),
+        "--output-path", str(out),
+        "--pose-source", "train",
+        "--order-poses", "True",
+        "--interpolation-steps", str(steps),
+        "--frame-rate", "30",
+        "--output-format", "video",
+        "--downscale-factor", "1.5",
+    ]
+    _emit(cb, cfg, "rendering", 0.15,
+          f"ns-render interpolate ({n_cams or '?'} cams x {steps})")
+    try:
+        rc = _run(cmd, cfg)
+    except JobCancelled:
+        raise
+    except Exception as e:
+        _log(cfg, f"Turntable render error: {e}")
+        rc = -1
+
+    if rc != 0 or not (out.exists() and out.stat().st_size > 0):
+        _log(cfg, f"Turntable render failed (exit {rc}) - continuing without it")
+        if out.exists() and out.stat().st_size == 0:
+            out.unlink(missing_ok=True)
+        _emit(cb, cfg, "rendering", 1.0, "Turntable skipped (render failed)")
+        return
+
+    size_mb = round(out.stat().st_size / 1e6, 1)
+    _log(cfg, f"OK Turntable rendered: {out.name} ({size_mb} MB)")
+    _emit(cb, cfg, "rendering", 1.0, f"Turntable ready: {out.name}")
+
+
 def run_job(cfg: JobConfig, cb: ProgressCb):
     """Run the whole pipeline. Catches exceptions and re-raises after logging."""
     try:
@@ -1373,6 +1463,8 @@ def run_job(cfg: JobConfig, cb: ProgressCb):
             apply_background_masks(cfg, cb)
         stage_train(cfg, cb)
         stage_export(cfg, cb)
+        if cfg.render_turntable:
+            stage_render_turntable(cfg, cb)
         _emit(cb, cfg, "done", 1.0, "Done")
     except JobCancelled as e:
         _log(cfg, f"\n!!! CANCELLED: {e}")

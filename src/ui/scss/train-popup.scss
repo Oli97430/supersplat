@@ -1074,6 +1074,17 @@ $lime:       #b5f200;
         &:hover { background: $cyan; color: $bg-deep; border-color: $cyan; }
     }
 
+    .tk-recent-tt {
+        @extend %recent-btn;
+        color: $cyan-bright;
+        font-size: 13px;
+        font-weight: 700;
+        width: 26px;
+        height: 26px;
+
+        &:hover { background: $cyan-bright; color: $bg-deep; border-color: $cyan-bright; }
+    }
+
     .tk-recent-del {
         @extend %recent-btn;
         color: $ink-faint;
@@ -1200,6 +1211,99 @@ $lime:       #b5f200;
         opacity: 0.5;
         cursor: wait;
     }
+}
+
+// ── Turntable preview lightbox ───────────────────────────────────────────────────
+.tk-tt {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    background: rgba(4, 8, 18, 0.92);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    animation: tk-frame-in 0.25s ease both;
+}
+
+.tk-tt-card {
+    display: flex;
+    flex-direction: column;
+    width: min(720px, 100%);
+    border: 1px solid $cyan;
+    background: rgba(12, 22, 40, 0.98);
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.5),
+        0 0 50px rgba(95, 211, 233, 0.1),
+        0 30px 80px rgba(0, 0, 0, 0.65);
+}
+
+.tk-tt-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 14px;
+    border-bottom: 1px solid $line-bold;
+}
+
+.tk-tt-title {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: $cyan;
+    user-select: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tk-tt-close {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    margin-left: 12px;
+    border: 1px solid transparent;
+    background: none;
+    color: $ink-faint;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+
+    &:hover { color: $rust; border-color: rgba(231, 111, 81, 0.4); background: rgba(231, 111, 81, 0.06); }
+}
+
+.tk-tt-video {
+    display: block;
+    width: 100%;
+    max-height: 60vh;
+    background: #000;
+    object-fit: contain;
+}
+
+.tk-tt-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-top: 1px solid $line-bold;
+}
+
+.tk-tt-newtab {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: $ink-dim;
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.15s;
+
+    &:hover { color: $cyan; }
 }
 
 // ── Footer ──────────────────────────────────────────────────────────────────────

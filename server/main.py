@@ -125,6 +125,7 @@ class JobState:
     prune_opacity_logit: float = -2.5
     remove_background: bool = False
     refine_geometry: bool = False
+    render_turntable: bool = False
     finished_at: Optional[float] = None
     metrics: Optional[dict] = None    # populated when done
     viewer_url: Optional[str] = None  # live nerfstudio viewer URL during training
@@ -134,6 +135,7 @@ class JobState:
         d = asdict(self)
         job_dir = JOBS_ROOT / self.id
         d["has_ply"] = (job_dir / "splat.ply").exists()
+        d["has_turntable"] = (job_dir / "turntable.mp4").exists()
         d["has_thumbnail"] = (job_dir / "thumbnail.jpg").exists()
         d["duration_sec"] = round((self.finished_at - self.created_at), 1) if self.finished_at else None
         return d
@@ -154,7 +156,8 @@ class JobRegistry:
                dedupe_threshold: int = 0,
                prune_opacity_logit: float = -2.5,
                remove_background: bool = False,
-               refine_geometry: bool = False) -> JobState:
+               refine_geometry: bool = False,
+               render_turntable: bool = False) -> JobState:
         jid = uuid.uuid4().hex[:12]
         st = JobState(
             id=jid, name=name, created_at=time.time(),
@@ -165,6 +168,7 @@ class JobRegistry:
             prune_opacity_logit=prune_opacity_logit,
             remove_background=remove_background,
             refine_geometry=refine_geometry,
+            render_turntable=render_turntable,
         )
         with self._lock:
             self._jobs[jid] = st
@@ -355,6 +359,7 @@ async def worker():
             prune_opacity_logit=st.prune_opacity_logit,
             remove_background=st.remove_background,
             refine_geometry=st.refine_geometry,
+            render_turntable=st.render_turntable,
             cancel_event=registry.get_cancel_event(jid),
         )
         registry.register_config(jid, cfg)
@@ -495,6 +500,7 @@ async def create_job(
     preset: str = Form("custom"),
     remove_background: bool = Form(False),
     refine_geometry: bool = Form(False),
+    render_turntable: bool = Form(False),
 ):
     _check_rate_limit(request)
 
@@ -552,6 +558,7 @@ async def create_job(
         prune_opacity_logit=prune_opacity_logit,
         remove_background=remove_background,
         refine_geometry=refine_geometry,
+        render_turntable=render_turntable,
     )
     upload_dir = JOBS_ROOT / st.id / "upload"
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -650,6 +657,20 @@ async def download_ply(jid: str):
     if not p.exists():
         raise HTTPException(404, "PLY not yet ready")
     return FileResponse(p, media_type="application/octet-stream", filename=f"{st.name}.ply")
+
+
+@app.get("/jobs/{jid}/turntable.mp4")
+async def job_turntable(jid: str, dl: int = 0):
+    # No auth dependency: the browser loads this directly via <video>/<a> and
+    # cannot attach an Authorization header (same rationale as /thumbnail).
+    st = registry.get(jid)
+    p = JOBS_ROOT / jid / "turntable.mp4"
+    if not p.exists():
+        raise HTTPException(404, "no turntable for this job")
+    if dl:
+        return FileResponse(p, media_type="video/mp4",
+                            filename=f"{st.name}-turntable.mp4")
+    return FileResponse(p, media_type="video/mp4")
 
 
 @app.post("/jobs/{jid}/cancel", dependencies=[Depends(require_auth)])
