@@ -151,6 +151,68 @@ const PRESETS: Preset[] = [
     { id: 'custom', label: 'CUSTOM', description: 'manual control of every parameter', matcher: 'sequential', max_iters: 30000, extract_fps: 2 }
 ];
 
+// ── Capture cheat-sheet shown per preset (real-world shooting technique) ──────
+type GuideRow = { k: string; v: string };
+type Guide = { rows: GuideRow[]; toggles?: string };
+const CAPTURE_GUIDE: Record<string, Guide> = {
+    object: {
+        rows: [
+            { k: 'MOVE',  v: 'full 360° orbit, 2–3 heights (low · eye · top-down)' },
+            { k: 'DIST',  v: 'close — the object fills the frame, small margin' },
+            { k: 'LIGHT', v: 'soft / diffuse, no hard shadows, neutral background' },
+            { k: 'CAM',   v: 'lock exposure + focus, fast shutter, steady' },
+            { k: 'AVOID', v: 'shiny / glass / transparent surfaces, moving the object' }
+        ],
+        toggles: 'REMOVE BACKGROUND + CLEAN GEOMETRY'
+    },
+    indoor: {
+        rows: [
+            { k: 'MOVE',  v: 'walk slowly along the walls, sweep the room, retrace for overlap' },
+            { k: 'DIST',  v: 'keep back — capture floor and ceiling too' },
+            { k: 'LIGHT', v: 'steady ambient light; don\'t blow out windows' },
+            { k: 'CAM',   v: 'higher ISO ok, lock exposure, move smoothly' },
+            { k: 'AVOID', v: 'fast motion, dark corners, mirrors / glass' }
+        ]
+    },
+    outdoor: {
+        rows: [
+            { k: 'MOVE',  v: 'full loop around the building, obliques of every face' },
+            { k: 'DIST',  v: 'wide passes to frame it + closer passes for detail' },
+            { k: 'LIGHT', v: 'overcast is ideal; avoid backlight / harsh sun' },
+            { k: 'CAM',   v: 'lock exposure, fast shutter' },
+            { k: 'AVOID', v: 'sky-dominated frames, moving shadows, crowds / cars' }
+        ],
+        toggles: 'CLEAN GEOMETRY'
+    },
+    drone: {
+        rows: [
+            { k: 'MOVE',  v: 'concentric orbits at 2–3 altitudes (~15° / 35° / 55° down)' },
+            { k: 'DIST',  v: 'subject fills a good part of the frame — far = no parallax' },
+            { k: 'LIGHT', v: 'diffuse; avoid harsh midday shadows' },
+            { k: 'CAM',   v: 'lock exposure + WB, shutter 1/500+, 4K, Normal profile' },
+            { k: 'MODE',  v: 'use POI / Orbit auto-flight if available' },
+            { k: 'AVOID', v: 'panning at a distant vista (zero parallax → COLMAP fails!)' }
+        ],
+        toggles: 'CLEAN GEOMETRY'
+    },
+    portrait: {
+        rows: [
+            { k: 'MOVE',  v: 'subject STAYS still — you orbit them 360°, 2 heights' },
+            { k: 'DIST',  v: 'frame head-to-feet, fairly tight' },
+            { k: 'LIGHT', v: 'soft, even on the face, no harsh shadows' },
+            { k: 'CAM',   v: 'fast shutter (they sway a little), lock exposure' },
+            { k: 'AVOID', v: 'the person moving, loose hair / fabric blowing' }
+        ],
+        toggles: 'REMOVE BACKGROUND + CLEAN GEOMETRY'
+    },
+    preview: {
+        rows: [
+            { k: 'USE',   v: 'shoot like any preset above — this just runs 5k iters' },
+            { k: 'WHY',   v: 'fast sanity check before committing to a full train' }
+        ]
+    }
+};
+
 // ── Cost estimator ───────────────────────────────────────────────────────────
 const estimateJob = (
     files: File[],
@@ -249,6 +311,7 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
             <div class="tk-step-body">
                 <div class="tk-presets" data-tk-presets role="radiogroup" aria-label="Capture preset"></div>
                 <span class="tk-preset-hint" data-tk-preset-hint>manual control of every parameter</span>
+                <div class="tk-guide" data-tk-guide hidden></div>
             </div>
         </section>
 
@@ -503,6 +566,7 @@ class TrainPopup extends Container {
         // ── DOM refs ────────────────────────────────────────────────
         const presetsWrap     = q('[data-tk-presets]');
         const presetHint      = q('[data-tk-preset-hint]');
+        const guideEl         = q<HTMLDivElement>('[data-tk-guide]');
         const estFrames       = q('[data-tk-est-frames]');
         const estUpload       = q('[data-tk-est-upload]');
         const estDisk         = q('[data-tk-est-disk]');
@@ -590,11 +654,47 @@ class TrainPopup extends Container {
         const utcTimer = setInterval(updateUTC, 1000);
 
         // ── Preset selector ─────────────────────────────────────────
+        const renderGuide = (id: string) => {
+            const g = CAPTURE_GUIDE[id];
+            guideEl.replaceChildren();
+            if (!g) { guideEl.setAttribute('hidden', ''); return; }
+            const head = document.createElement('div');
+            head.className = 'tk-guide-head';
+            head.textContent = '◢ OPTIMAL CAPTURE';
+            guideEl.appendChild(head);
+            for (const row of g.rows) {
+                const r = document.createElement('div');
+                r.className = 'tk-guide-row';
+                const k = document.createElement('span');
+                k.className = 'tk-guide-k';
+                k.textContent = row.k;
+                const v = document.createElement('span');
+                v.className = 'tk-guide-v';
+                v.textContent = row.v;
+                r.append(k, v);
+                guideEl.appendChild(r);
+            }
+            if (g.toggles) {
+                const t = document.createElement('div');
+                t.className = 'tk-guide-row tk-guide-row--toggles';
+                const k = document.createElement('span');
+                k.className = 'tk-guide-k';
+                k.textContent = 'ENHANCE';
+                const v = document.createElement('span');
+                v.className = 'tk-guide-v';
+                v.textContent = g.toggles;
+                t.append(k, v);
+                guideEl.appendChild(t);
+            }
+            guideEl.removeAttribute('hidden');
+        };
+
         const applyPreset = (id: string) => {
             const p = PRESETS.find(x => x.id === id);
             if (!p) return;
             currentPreset = id;
             presetHint.textContent = p.description;
+            renderGuide(id);
             presetsWrap.querySelectorAll('button').forEach((b) => {
                 b.classList.toggle('is-active', (b as HTMLButtonElement).dataset.v === id);
             });

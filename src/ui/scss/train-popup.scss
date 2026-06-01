@@ -1428,6 +1428,58 @@ $lime:       #b5f200;
     min-height: 14px;
 }
 
+// ── Per-preset capture cheat-sheet ──────────────────────────────────────────────
+.tk-guide {
+    margin-top: 10px;
+    border: 1px solid $line;
+    border-left: 2px solid $cyan;
+    background: rgba(95, 211, 233, 0.04);
+    padding: 9px 11px 10px;
+
+    &[hidden] { display: none; }
+
+    .tk-guide-head {
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.18em;
+        color: $cyan;
+        margin-bottom: 7px;
+        text-transform: uppercase;
+    }
+
+    .tk-guide-row {
+        display: grid;
+        grid-template-columns: 52px 1fr;
+        gap: 8px;
+        padding: 2px 0;
+        align-items: baseline;
+
+        & + .tk-guide-row { border-top: 1px solid rgba(28, 44, 70, 0.5); }
+    }
+
+    .tk-guide-k {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        color: $ink-dim;
+        text-transform: uppercase;
+        text-align: right;
+    }
+
+    .tk-guide-v {
+        font-size: 10.5px;
+        line-height: 1.45;
+        color: $ink;
+        letter-spacing: 0.01em;
+    }
+
+    .tk-guide-row--toggles {
+        margin-top: 4px;
+        .tk-guide-k { color: $amber; }
+        .tk-guide-v { color: $amber; font-weight: 600; }
+    }
+}
+
 // ── Cost estimator ───────────────────────────────────────────────────────────
 .tk-estimate {
     display: grid;
