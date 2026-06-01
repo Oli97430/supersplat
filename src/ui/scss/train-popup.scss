@@ -959,6 +959,108 @@ $lime:       #b5f200;
     }
 }
 
+// ── Video trim (in / out) ─────────────────────────────────────────────────────────
+.tk-trim {
+    margin-top: 10px;
+    padding: 10px 12px 12px;
+    background: rgba(0, 0, 0, 0.22);
+    border-left: 2px solid $cyan;
+}
+
+.tk-trim-video {
+    display: block;
+    width: 100%;
+    max-height: 190px;
+    background: #000;
+    border: 1px solid $line;
+    object-fit: contain;
+}
+
+.tk-trim-track {
+    position: relative;
+    height: 24px;
+    margin: 12px 7px 8px;
+    background: repeating-linear-gradient(90deg, $bg-rail 0 5px, $bg-deep 5px 6px);
+    border: 1px solid $line-bold;
+    touch-action: none;
+}
+
+.tk-trim-fill {
+    position: absolute;
+    top: -1px;
+    bottom: -1px;
+    background: rgba(95, 211, 233, 0.14);
+    border-left: 2px solid $cyan;
+    border-right: 2px solid $cyan;
+    pointer-events: none;
+}
+
+.tk-trim-handle {
+    position: absolute;
+    top: 50%;
+    width: 12px;
+    height: 30px;
+    padding: 0;
+    transform: translate(-50%, -50%);
+    background: $cyan;
+    border: 1px solid $bg-deep;
+    box-shadow: 0 0 8px rgba(95, 211, 233, 0.35);
+    cursor: ew-resize;
+    touch-action: none;
+    z-index: 2;
+    transition: background 0.12s;
+
+    &::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 2px;
+        height: 12px;
+        transform: translate(-50%, -50%);
+        background: $bg-deep;
+    }
+
+    &:hover, &:focus-visible { background: $cyan-bright; outline: none; }
+}
+
+.tk-trim-readout {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    user-select: none;
+}
+
+.tk-trim-label {
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    color: $cyan;
+}
+
+.tk-trim-times {
+    font-family: 'JetBrains Mono', monospace;
+    color: $ink;
+}
+
+.tk-trim-keep { color: $ink-dim; }
+
+.tk-trim-reset {
+    margin-left: auto;
+    background: none;
+    border: 1px solid $line-bold;
+    color: $ink-dim;
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+
+    &:hover { border-color: $cyan; color: $cyan; }
+}
+
 // ── Recent jobs list ────────────────────────────────────────────────────────────
 .tk-rule--recent { margin-top: 22px; }
 

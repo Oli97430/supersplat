@@ -126,6 +126,8 @@ class JobState:
     remove_background: bool = False
     refine_geometry: bool = False
     render_turntable: bool = False
+    clip_start: float = 0.0
+    clip_end: float = 0.0
     finished_at: Optional[float] = None
     metrics: Optional[dict] = None    # populated when done
     viewer_url: Optional[str] = None  # live nerfstudio viewer URL during training
@@ -157,7 +159,9 @@ class JobRegistry:
                prune_opacity_logit: float = -2.5,
                remove_background: bool = False,
                refine_geometry: bool = False,
-               render_turntable: bool = False) -> JobState:
+               render_turntable: bool = False,
+               clip_start: float = 0.0,
+               clip_end: float = 0.0) -> JobState:
         jid = uuid.uuid4().hex[:12]
         st = JobState(
             id=jid, name=name, created_at=time.time(),
@@ -169,6 +173,8 @@ class JobRegistry:
             remove_background=remove_background,
             refine_geometry=refine_geometry,
             render_turntable=render_turntable,
+            clip_start=clip_start,
+            clip_end=clip_end,
         )
         with self._lock:
             self._jobs[jid] = st
@@ -360,6 +366,8 @@ async def worker():
             remove_background=st.remove_background,
             refine_geometry=st.refine_geometry,
             render_turntable=st.render_turntable,
+            clip_start=st.clip_start,
+            clip_end=st.clip_end,
             cancel_event=registry.get_cancel_event(jid),
         )
         registry.register_config(jid, cfg)
@@ -501,6 +509,8 @@ async def create_job(
     remove_background: bool = Form(False),
     refine_geometry: bool = Form(False),
     render_turntable: bool = Form(False),
+    clip_start: float = Form(0.0),
+    clip_end: float = Form(0.0),
 ):
     _check_rate_limit(request)
 
@@ -559,6 +569,8 @@ async def create_job(
         remove_background=remove_background,
         refine_geometry=refine_geometry,
         render_turntable=render_turntable,
+        clip_start=clip_start,
+        clip_end=clip_end,
     )
     upload_dir = JOBS_ROOT / st.id / "upload"
     upload_dir.mkdir(parents=True, exist_ok=True)

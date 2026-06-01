@@ -318,6 +318,21 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
                     </div>
                     <ul class="tk-hints-list" data-tk-hints-list></ul>
                 </div>
+
+                <div class="tk-trim" hidden data-tk-trim>
+                    <video class="tk-trim-video" data-tk-trim-video muted playsinline preload="metadata"></video>
+                    <div class="tk-trim-track" data-tk-trim-track>
+                        <div class="tk-trim-fill" data-tk-trim-fill></div>
+                        <button class="tk-trim-handle tk-trim-handle--in" data-tk-trim-in type="button" aria-label="Start point"></button>
+                        <button class="tk-trim-handle tk-trim-handle--out" data-tk-trim-out type="button" aria-label="End point"></button>
+                    </div>
+                    <div class="tk-trim-readout">
+                        <span class="tk-trim-label">CUT</span>
+                        <span class="tk-trim-times"><span data-tk-trim-t-in>0:00</span> &rarr; <span data-tk-trim-t-out>0:00</span></span>
+                        <span class="tk-trim-keep" data-tk-trim-keep>&mdash;</span>
+                        <button class="tk-trim-reset" data-tk-trim-reset type="button">reset</button>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -611,6 +626,16 @@ class TrainPopup extends Container {
         const hintsBox        = q('[data-tk-hints]');
         const hintsSummary    = q('[data-tk-hints-summary]');
         const hintsList       = q<HTMLUListElement>('[data-tk-hints-list]');
+        const trimBox         = q<HTMLDivElement>('[data-tk-trim]');
+        const trimVideo       = q<HTMLVideoElement>('[data-tk-trim-video]');
+        const trimTrack       = q<HTMLDivElement>('[data-tk-trim-track]');
+        const trimFill        = q<HTMLDivElement>('[data-tk-trim-fill]');
+        const trimHandleIn    = q<HTMLButtonElement>('[data-tk-trim-in]');
+        const trimHandleOut   = q<HTMLButtonElement>('[data-tk-trim-out]');
+        const trimTIn         = q('[data-tk-trim-t-in]');
+        const trimTOut        = q('[data-tk-trim-t-out]');
+        const trimKeep        = q('[data-tk-trim-keep]');
+        const trimResetBtn    = q<HTMLButtonElement>('[data-tk-trim-reset]');
         const itersSlider     = q<HTMLInputElement>('[data-tk-iters]');
         const itersOut        = q('[data-tk-iters-out]');
         const matcherWrap     = q('[data-tk-matcher]');
@@ -671,6 +696,12 @@ class TrainPopup extends Container {
         let startedAt = 0;
         let activeJob: string | null = null;
         let videoMeta: { duration: number; width: number; height: number; sizeMB: number } | null = null;
+        // Video trim (in/out) state — clipEnd 0 means "until the end".
+        let clipStart = 0;
+        let clipEnd = 0;
+        let trimDuration = 0;
+        let trimUrl: string | null = null;
+        let dragging: 'in' | 'out' | null = null;
         let rawlogPollId: ReturnType<typeof setInterval> | null = null;
         let rawlogVisible = false;
         let gpuLivePollId: ReturnType<typeof setInterval> | null = null;
@@ -764,7 +795,11 @@ class TrainPopup extends Container {
                 return;
             }
             const iters = +itersSlider.value;
-            const est = estimateJob(pickedFiles, videoMeta, currentFps, iters);
+            // If the video is trimmed, estimate from the kept duration.
+            const kept = (videoMeta && trimDuration > 0 && clipEnd > clipStart
+                && (clipEnd - clipStart) < videoMeta.duration - 0.05) ? (clipEnd - clipStart) : null;
+            const effMeta = (videoMeta && kept != null) ? { ...videoMeta, duration: kept } : videoMeta;
+            const est = estimateJob(pickedFiles, effMeta, currentFps, iters);
             estFrames.textContent = String(est.frames);
             estUpload.textContent = est.uploadMB < 1024 ? `${est.uploadMB} MB` : `${(est.uploadMB / 1024).toFixed(2)} GB`;
             estDisk.textContent = est.diskMB < 1024 ? `${est.diskMB} MB` : `${(est.diskMB / 1024).toFixed(2)} GB`;
@@ -962,7 +997,9 @@ class TrainPopup extends Container {
 
         const refreshFpsHint = () => {
             if (videoMeta) {
-                const frames = Math.round(videoMeta.duration * currentFps);
+                const effDur = (trimDuration > 0 && clipEnd > clipStart
+                    && (clipEnd - clipStart) < videoMeta.duration - 0.05) ? (clipEnd - clipStart) : videoMeta.duration;
+                const frames = Math.round(effDur * currentFps);
                 fpsHint.textContent = `video → ~${frames} frames at ${currentFps} fps`;
             } else {
                 fpsHint.textContent = 'video → frame sampling rate';
@@ -1001,6 +1038,7 @@ class TrainPopup extends Container {
                 sourceRow.setAttribute('hidden', '');
                 // Keep START live when a failed job can be resumed.
                 startBtn.disabled = lastFailedJobId === null;
+                refreshTrimmer();
                 void refreshHints();
                 return;
             }
@@ -1024,9 +1062,102 @@ class TrainPopup extends Container {
                 matcherHint.textContent = 'unordered · vocab tree · robust';
             }
             startBtn.disabled = false;
+            refreshTrimmer();
             void refreshHints();
             void refreshEstimate();
         };
+
+        // ── Video trim (in / out) ───────────────────────────────────
+        const fmtClock = (s: number) => {
+            s = Math.max(0, s);
+            const m = Math.floor(s / 60);
+            const sec = Math.floor(s % 60);
+            return `${m}:${String(sec).padStart(2, '0')}`;
+        };
+        const renderTrim = () => {
+            const dur = trimDuration;
+            const kept = Math.max(0, clipEnd - clipStart);
+            trimTIn.textContent = fmtClock(clipStart);
+            trimTOut.textContent = fmtClock(clipEnd);
+            const frames = Math.round(kept * currentFps);
+            trimKeep.textContent = dur > 0
+                ? `keep ${fmtClock(kept)} / ${fmtClock(dur)} · ~${frames} frames`
+                : '—';
+            const a = dur > 0 ? (clipStart / dur) * 100 : 0;
+            const b = dur > 0 ? (clipEnd / dur) * 100 : 100;
+            trimHandleIn.style.left = `${a}%`;
+            trimHandleOut.style.left = `${b}%`;
+            trimFill.style.left = `${a}%`;
+            trimFill.style.right = `${100 - b}%`;
+        };
+        const refreshTrimmer = () => {
+            const hasVideo = pickedFiles.length > 0 && isVideoFile(pickedFiles[0].name);
+            if (!hasVideo) {
+                trimBox.setAttribute('hidden', '');
+                if (trimUrl) { URL.revokeObjectURL(trimUrl); trimUrl = null; }
+                trimVideo.removeAttribute('src');
+                trimVideo.load();
+                clipStart = 0; clipEnd = 0; trimDuration = 0;
+                return;
+            }
+            if (trimUrl) { URL.revokeObjectURL(trimUrl); trimUrl = null; }
+            clipStart = 0; clipEnd = 0; trimDuration = 0;
+            trimUrl = URL.createObjectURL(pickedFiles[0]);
+            trimVideo.src = trimUrl;
+            trimBox.removeAttribute('hidden');
+            renderTrim();
+            // real duration + range arrive on loadedmetadata
+        };
+        trimVideo.addEventListener('loadedmetadata', () => {
+            trimDuration = isFinite(trimVideo.duration) ? trimVideo.duration : 0;
+            clipStart = 0;
+            clipEnd = trimDuration;
+            renderTrim();
+            void refreshEstimate();
+        });
+        const timeFromX = (clientX: number) => {
+            const r = trimTrack.getBoundingClientRect();
+            const frac = r.width > 0 ? (clientX - r.left) / r.width : 0;
+            return Math.min(trimDuration, Math.max(0, frac * trimDuration));
+        };
+        const onTrimMove = (ev: PointerEvent) => {
+            if (!dragging || trimDuration <= 0) return;
+            const t = timeFromX(ev.clientX);
+            if (dragging === 'in') {
+                clipStart = Math.max(0, Math.min(t, clipEnd - 0.2));
+            } else {
+                clipEnd = Math.min(trimDuration, Math.max(t, clipStart + 0.2));
+            }
+            try { trimVideo.currentTime = dragging === 'in' ? clipStart : clipEnd; } catch { /* seek race */ }
+            renderTrim();
+        };
+        const endTrim = () => {
+            if (!dragging) return;
+            dragging = null;
+            void refreshEstimate();
+        };
+        const beginTrim = (which: 'in' | 'out') => (ev: PointerEvent) => {
+            if (trimDuration <= 0) return;
+            ev.preventDefault();
+            dragging = which;
+            try { (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId); } catch { /* unsupported */ }
+            onTrimMove(ev);
+        };
+        trimHandleIn.addEventListener('pointerdown', beginTrim('in'));
+        trimHandleOut.addEventListener('pointerdown', beginTrim('out'));
+        trimHandleIn.addEventListener('pointermove', onTrimMove);
+        trimHandleOut.addEventListener('pointermove', onTrimMove);
+        trimHandleIn.addEventListener('pointerup', endTrim);
+        trimHandleOut.addEventListener('pointerup', endTrim);
+        trimHandleIn.addEventListener('pointercancel', endTrim);
+        trimHandleOut.addEventListener('pointercancel', endTrim);
+        trimResetBtn.addEventListener('click', () => {
+            clipStart = 0;
+            clipEnd = trimDuration;
+            try { trimVideo.currentTime = 0; } catch { /* noop */ }
+            renderTrim();
+            void refreshEstimate();
+        });
 
         // ── Turntable preview lightbox ──────────────────────────────
         let ttCurrent: { id: string; name: string } | null = null;
@@ -1181,6 +1312,12 @@ class TrainPopup extends Container {
             fd.append('remove_background', String(removeBackground));
             fd.append('refine_geometry', String(refineGeometry));
             fd.append('render_turntable', String(renderTurntable));
+            const trimming = pickedFiles.length > 0 && isVideoFile(pickedFiles[0].name)
+                && trimDuration > 0 && (clipStart > 0.1 || clipEnd < trimDuration - 0.1);
+            if (trimming) {
+                fd.append('clip_start', clipStart.toFixed(2));
+                fd.append('clip_end', clipEnd.toFixed(2));
+            }
             const r = await fetch(`${getBackendUrl()}/jobs`, { method: 'POST', body: fd });
             if (!r.ok) throw new Error(`upload ${r.status}: ${await r.text()}`);
             const j = await r.json();

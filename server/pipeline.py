@@ -640,6 +640,8 @@ class JobConfig:
     mask_model: str = "isnet-general-use"  # rembg model for background removal
     refine_geometry: bool = False     # scale-reg + bilateral grid + floater cull
     render_turntable: bool = False    # render an orbit MP4 preview after export
+    clip_start: float = 0.0           # trim: seconds into the video to start extraction
+    clip_end: float = 0.0             # trim: seconds to stop (0 = until the end)
     cancel_event: Optional[threading.Event] = None
     _proc_ref: dict = field(default_factory=dict)
 
@@ -820,13 +822,29 @@ def stage_extract_frames(cfg: JobConfig, cb: ProgressCb):
         return
 
     video = next(p for p in cfg.upload_dir.iterdir() if p.suffix.lower() in VIDEO_EXTS)
-    _emit(cb, cfg, "extracting", 0.1, f"Extracting frames at {cfg.extract_fps} fps from {video.name}")
-    cmd = [
-        "ffmpeg", "-y", "-i", str(video),
+
+    # Optional trim: only extract a [clip_start, clip_end] slice. Input seek
+    # (-ss before -i) is fast; -t (output duration) is version-agnostic and
+    # always means "seconds to read from the seek point".
+    start = max(0.0, cfg.clip_start)
+    end = cfg.clip_end if cfg.clip_end and cfg.clip_end > start else 0.0
+    trim_note = ""
+    cmd = ["ffmpeg", "-y"]
+    if start > 0.05:
+        cmd += ["-ss", f"{start:.3f}"]
+    cmd += ["-i", str(video)]
+    if end > start:
+        cmd += ["-t", f"{end - start:.3f}"]
+        trim_note = f" [trim {start:.1f}s→{end:.1f}s]"
+    elif start > 0.05:
+        trim_note = f" [trim from {start:.1f}s]"
+    cmd += [
         "-vf", f"fps={cfg.extract_fps},scale=1600:-2",
         "-q:v", "2",
         str(cfg.images_dir / "frame_%05d.jpg"),
     ]
+    _emit(cb, cfg, "extracting", 0.1,
+          f"Extracting frames at {cfg.extract_fps} fps from {video.name}{trim_note}")
     rc = _run(cmd, cfg)
     if rc != 0:
         raise RuntimeError(f"ffmpeg failed (exit {rc})")
