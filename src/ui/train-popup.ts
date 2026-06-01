@@ -1021,6 +1021,7 @@ class TrainPopup extends Container {
         const subscribe = (jobId: string) => new Promise<void>((resolve, reject) => {
             const src = new EventSource(`${getBackendUrl()}/jobs/${jobId}/stream`);
             let lastStage = '';
+            let reportShown = false;
             src.addEventListener('status', (ev) => {
                 const s = JSON.parse((ev as MessageEvent).data);
                 setProgress(s.overall, s.stage, s.message);
@@ -1028,6 +1029,28 @@ class TrainPopup extends Container {
                     appendLog(STAGE_LABELS[s.stage] || s.stage.toUpperCase(), s.message || '',
                         s.stage === 'failed' ? 'err' : s.stage === 'cancelled' ? 'warn' : 'ok');
                     lastStage = s.stage;
+                }
+                // Pre-flight capture report — surface warnings ONCE, before the
+                // slow COLMAP pass, so a doomed capture is obvious immediately.
+                if (!reportShown && s.capture_report) {
+                    reportShown = true;
+                    const r = s.capture_report;
+                    const verdict = r.verdict || 'good';
+                    if (r.warnings && r.warnings.length) {
+                        appendLog('PRE-FLIGHT',
+                            `capture looks ${String(verdict).toUpperCase()} · parallax ${r.parallax ?? '?'}px · ${r.n_frames ?? '?'} frames`,
+                            verdict === 'poor' ? 'err' : 'warn');
+                        for (const w of r.warnings) {
+                            appendLog(w.level === 'error' ? 'RISK' : 'TIP', w.msg,
+                                w.level === 'error' ? 'err' : 'warn');
+                        }
+                        if (verdict === 'poor') {
+                            appendLog('HINT', 'You can DETACH/abort now if you want to re-shoot — COLMAP is about to run.', 'system');
+                        }
+                    } else {
+                        appendLog('PRE-FLIGHT',
+                            `capture OK · parallax ${r.parallax ?? '?'}px · ${r.n_frames ?? '?'} frames`, 'ok');
+                    }
                 }
                 // Live viewer URL handling -- show during training, drop on end.
                 if (s.viewer_url && s.stage === 'training') {

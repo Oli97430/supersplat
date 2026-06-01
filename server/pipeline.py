@@ -262,6 +262,136 @@ def dedupe_consecutive_frames(images_dir: Path, hamming_threshold: int = 4) -> i
     return removed
 
 
+def analyze_capture(images_dir: Path, max_pairs: int = 14) -> dict:
+    """Pre-flight check on the extracted frames — runs in a few seconds before
+    the (slow) COLMAP pass so a doomed capture is caught early instead of after
+    20+ minutes of reconstruction that ends with "only 5 poses".
+
+    Heuristics (all cheap, on downscaled frames):
+      • parallax  — median dense optical-flow magnitude between consecutive
+        frames. Near-zero ⇒ the camera barely translated (pano / hover /
+        distant vista) ⇒ COLMAP can't triangulate.
+      • sharpness — Laplacian variance; flags a mostly-blurry capture.
+      • sky_frac  — fraction of bright, low-texture pixels (sky / blown sky).
+      • texture   — overall gradient energy; flags a featureless scene.
+
+    Returns a report dict with a verdict ('good' | 'risky' | 'poor') and a
+    list of {level, msg} warnings. Never raises — analysis is best-effort and
+    must not block the pipeline."""
+    report: dict = {"verdict": "good", "warnings": [], "n_frames": 0}
+    try:
+        import cv2          # type: ignore
+        import numpy as np  # type: ignore
+    except ImportError:
+        return report
+
+    frames = sorted(images_dir.glob("*.jpg")) + sorted(images_dir.glob("*.png"))
+    n = len(frames)
+    report["n_frames"] = n
+    if n < 5:
+        report["verdict"] = "poor"
+        report["warnings"].append({"level": "error",
+            "msg": f"Only {n} frames — far too few (need 20+)."})
+        return report
+
+    def load_gray(p, w=480):
+        img = cv2.imdecode(np.fromfile(str(p), dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return None
+        h = int(img.shape[0] * w / img.shape[1])
+        return cv2.resize(img, (w, max(1, h)), interpolation=cv2.INTER_AREA)
+
+    orb = cv2.ORB_create(1200)
+    bf  = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+
+    idxs = sorted(set(int(i) for i in np.linspace(0, n - 2, min(max_pairs, n - 1))))
+    residuals, inliers, sharps, skies = [], [], [], []
+    for i in idxs:
+        a = load_gray(frames[i]); b = load_gray(frames[i + 1])
+        if a is None or b is None:
+            continue
+        # sharpness + sky on frame a
+        sharps.append(float(cv2.Laplacian(a, cv2.CV_64F).var()))
+        gx = cv2.Sobel(a, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(a, cv2.CV_32F, 0, 1, ksize=3)
+        gmag = np.sqrt(gx ** 2 + gy ** 2)
+        skies.append(float(np.logical_and(a > 200, gmag < 8).mean()))
+
+        # Parallax via the homography-degeneracy idea COLMAP itself uses: match
+        # ORB features, fit the camera ego-motion (a partial affine — handles
+        # pan / rotation / zoom of a distant or planar scene exactly), and look
+        # at the RESIDUAL. A pano/hover is fully explained by that model →
+        # ~0 residual → no depth parallax → COLMAP can't triangulate. A real
+        # orbit of a near subject leaves a clear residual.
+        ka, da = orb.detectAndCompute(a, None)
+        kb, db = orb.detectAndCompute(b, None)
+        if da is None or db is None or len(ka) < 20 or len(kb) < 20:
+            inliers.append(0)
+            continue
+        matches = bf.match(da, db)
+        if len(matches) < 20:
+            inliers.append(len(matches))
+            continue
+        matches = sorted(matches, key=lambda x: x.distance)[:200]
+        pa = np.float32([ka[m.queryIdx].pt for m in matches])
+        pb = np.float32([kb[m.trainIdx].pt for m in matches])
+        M, inl = cv2.estimateAffinePartial2D(pa, pb, method=cv2.RANSAC,
+                                             ransacReprojThreshold=3)
+        if M is None:
+            inliers.append(0)
+            continue
+        proj = (pa @ M[:, :2].T) + M[:, 2]
+        residuals.append(float(np.median(np.linalg.norm(proj - pb, axis=1))))
+        inliers.append(int(inl.sum()) if inl is not None else 0)
+
+    parallax  = float(np.median(residuals)) if residuals else 0.0
+    avg_inl   = float(np.mean(inliers)) if inliers else 0.0
+    sharpness = float(np.median(sharps)) if sharps else 0.0
+    sky_frac  = float(np.median(skies)) if skies else 0.0
+    report.update(parallax=round(parallax, 2), inliers=round(avg_inl),
+                  sharpness=round(sharpness, 1), sky_frac=round(sky_frac, 3))
+
+    warns = report["warnings"]
+    # ── Parallax (the decisive one) ───────────────────────────────────────
+    if not residuals or parallax < 1.0:
+        report["verdict"] = "poor"
+        warns.append({"level": "error",
+            "msg": f"Very low parallax (residual {parallax:.1f}px). The camera "
+                   "isn't translating relative to the scene — looks like a "
+                   "pano / hover / distant subject. COLMAP will likely fail. "
+                   "Orbit a NEAR subject (camera pointed at it, fly around it)."})
+    elif parallax < 1.6:
+        report["verdict"] = "risky"
+        warns.append({"level": "warn",
+            "msg": f"Low parallax (residual {parallax:.1f}px). Move more AROUND "
+                   "the subject, or get closer so it fills the frame."})
+    # ── Feature matching (texture) ────────────────────────────────────────
+    if avg_inl < 30:
+        if report["verdict"] != "poor":
+            report["verdict"] = "risky"
+        warns.append({"level": "warn",
+            "msg": f"Few stable features ({avg_inl:.0f}/pair) — low texture, "
+                   "blur or fog. COLMAP matching may struggle."})
+    # ── Sky / blank ───────────────────────────────────────────────────────
+    if sky_frac > 0.45:
+        if report["verdict"] != "poor":
+            report["verdict"] = "risky"
+        warns.append({"level": "warn",
+            "msg": f"~{sky_frac*100:.0f}% of the frame is sky/blank — frame the "
+                   "subject tighter."})
+    # ── Blur ──────────────────────────────────────────────────────────────
+    if sharpness < 120:
+        if report["verdict"] != "poor":
+            report["verdict"] = "risky"
+        warns.append({"level": "warn",
+            "msg": "Frames look soft/blurry — faster shutter, avoid fast moves."})
+    # ── Frame count ───────────────────────────────────────────────────────
+    if n < 30:
+        warns.append({"level": "warn",
+            "msg": f"Only {n} frames — a longer capture or higher fps helps."})
+    return report
+
+
 def optimize_ply(in_path: Path, out_path: Path,
                  opacity_min_logit: float = -2.5) -> dict:
     """Prune near-invisible gaussians from a 3D Gaussian Splat PLY.
@@ -549,6 +679,7 @@ class JobUpdate:
     message: str = ""
     error: Optional[str] = None
     viewer_url: Optional[str] = None      # Live nerfstudio viewer URL (training stage)
+    capture_report: Optional[dict] = None  # Pre-flight frame analysis (one-shot)
 
 
 ProgressCb = Callable[[JobUpdate], None]
@@ -719,6 +850,40 @@ def stage_extract_frames(cfg: JobConfig, cb: ProgressCb):
             n = len(list(cfg.images_dir.iterdir()))
 
     _emit(cb, cfg, "extracting", 1.0, f"{n} frames ready")
+
+
+def stage_preflight(cfg: JobConfig, cb: ProgressCb):
+    """Analyse the extracted frames and surface capture-quality warnings BEFORE
+    the slow COLMAP pass, so a doomed capture is caught in seconds. Advisory
+    only — never blocks the pipeline."""
+    # Skip if COLMAP already succeeded (retry path) — nothing to warn about.
+    if (cfg.workspace_dir / "transforms.json").exists():
+        return
+    _emit(cb, cfg, "extracting", 1.0, "Checking capture quality…")
+    report = analyze_capture(cfg.images_dir)
+    if not report.get("warnings"):
+        _log(cfg, f"✓ Pre-flight OK — parallax {report.get('parallax', '?')}px, "
+                  f"{report.get('n_frames', '?')} frames")
+        cb(JobUpdate(stage="extracting", stage_progress=1.0,
+                     overall=min(1.0, (STAGES.index('extracting') + 1) / (len(STAGES) - 1)),
+                     message="Capture looks good", capture_report=report))
+        return
+
+    verdict = report.get("verdict", "good")
+    icon = "‼" if verdict == "poor" else "⚠"
+    _log(cfg, f"{icon} Pre-flight: capture looks {verdict.upper()} "
+              f"(parallax {report.get('parallax', '?')}px, "
+              f"sky {report.get('sky_frac', 0)*100:.0f}%, "
+              f"{report.get('n_frames', '?')} frames)")
+    for w in report["warnings"]:
+        _log(cfg, f"  {('!!' if w['level'] == 'error' else '·')} {w['msg']}")
+    headline = report["warnings"][0]["msg"]
+    cb(JobUpdate(
+        stage="extracting", stage_progress=1.0,
+        overall=min(1.0, (STAGES.index('extracting') + 1) / (len(STAGES) - 1)),
+        message=(f"⚠ {headline}" if verdict != "good" else "Capture looks good"),
+        capture_report=report,
+    ))
 
 
 def stage_colmap(cfg: JobConfig, cb: ProgressCb):
@@ -1202,6 +1367,7 @@ def run_job(cfg: JobConfig, cb: ProgressCb):
     try:
         stage_prepare(cfg, cb)
         stage_extract_frames(cfg, cb)
+        stage_preflight(cfg, cb)
         stage_colmap(cfg, cb)
         if cfg.remove_background:
             apply_background_masks(cfg, cb)

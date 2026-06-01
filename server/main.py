@@ -128,6 +128,7 @@ class JobState:
     finished_at: Optional[float] = None
     metrics: Optional[dict] = None    # populated when done
     viewer_url: Optional[str] = None  # live nerfstudio viewer URL during training
+    capture_report: Optional[dict] = None  # pre-flight frame-quality analysis
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -225,6 +226,8 @@ class JobRegistry:
                 st.error = upd.error
             if upd.viewer_url:
                 st.viewer_url = upd.viewer_url
+            if upd.capture_report is not None:
+                st.capture_report = upd.capture_report
             if upd.stage in ("done", "failed", "cancelled") and st.finished_at is None:
                 st.finished_at = time.time()
                 # Clear the live viewer URL — nerfstudio shut it down.
