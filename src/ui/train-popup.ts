@@ -145,6 +145,7 @@ const PRESETS: Preset[] = [
     { id: 'object', label: 'OBJECT', description: 'sculpture, product · sequential · 20k', matcher: 'sequential', max_iters: 20000, extract_fps: 3 },
     { id: 'indoor', label: 'INDOOR', description: 'room, café, museum · sequential · 30k', matcher: 'sequential', max_iters: 30000, extract_fps: 2 },
     { id: 'outdoor', label: 'OUTDOOR', description: 'building, monument · vocab_tree · 40k', matcher: 'vocab_tree', max_iters: 40000, extract_fps: 2 },
+    { id: 'drone', label: 'DRONE', description: 'aerial orbit · subject-centric · vocab_tree · 30k', matcher: 'vocab_tree', max_iters: 30000, extract_fps: 3 },
     { id: 'portrait', label: 'PORTRAIT', description: 'person, full-body · sequential · 25k', matcher: 'sequential', max_iters: 25000, extract_fps: 3 },
     { id: 'preview', label: 'PREVIEW', description: 'quick 5k iters · fast check first', matcher: 'sequential', max_iters: 5000, extract_fps: 2 },
     { id: 'custom', label: 'CUSTOM', description: 'manual control of every parameter', matcher: 'sequential', max_iters: 30000, extract_fps: 2 }

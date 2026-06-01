@@ -67,6 +67,17 @@ CAPTURE_PRESETS: dict[str, dict] = {
         "extract_fps": 2, "blur_threshold": 100.0,
         "dedupe_threshold": 3, "prune_opacity_logit": -2.5,
     },
+    "drone": {
+        "label": "Drone Orbit",
+        "description": "Aerial orbit around a subject — building, monument, terrain feature",
+        # vocab_tree finds the cross-orbit / loop-closure matches that a
+        # multi-altitude orbit needs. 3 fps samples parallax densely on a
+        # smooth flight; conservative dedup (2) keeps useful orbit frames
+        # instead of dropping half of them.
+        "matcher": "vocab_tree", "max_iters": 30000,
+        "extract_fps": 3, "blur_threshold": 60.0,
+        "dedupe_threshold": 2, "prune_opacity_logit": -2.5,
+    },
     "portrait": {
         "label": "Person / Portrait",
         "description": "Full body around a single subject",
