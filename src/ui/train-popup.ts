@@ -491,10 +491,22 @@ const TEMPLATE = `<!DOCTYPE html><body><div class="tk-console" data-state="idle"
             <ul class="tk-recent-list" data-tk-recent-list></ul>
         </section>
 
+        <div class="tk-disk" hidden data-tk-disk>
+            <div class="tk-disk-bar">
+                <div class="tk-disk-used" data-tk-disk-used></div>
+                <div class="tk-disk-jobs" data-tk-disk-jobs></div>
+            </div>
+            <div class="tk-disk-row">
+                <span class="tk-disk-text" data-tk-disk-text>&mdash;</span>
+                <button class="tk-disk-purge" data-tk-disk-purge type="button" hidden>&times; purge failed</button>
+            </div>
+        </div>
+
         <footer class="tk-foot">
             <div class="tk-foot-meta">
                 <span class="tk-blink">&#9646;</span>
                 <span data-tk-status>READY</span>
+                <button class="tk-mute" data-tk-mute type="button" title="Mute completion sound">&#128266;</button>
             </div>
             <div class="tk-foot-buttons">
                 <button class="tk-btn tk-btn--ghost" data-tk-cancel type="button">esc &middot; CLOSE</button>
@@ -666,6 +678,12 @@ class TrainPopup extends Container {
         const recentRule      = q('[data-tk-rule-recent]');
         const recentBox       = q('[data-tk-recent]');
         const recentList      = q<HTMLUListElement>('[data-tk-recent-list]');
+        const diskBox         = q<HTMLDivElement>('[data-tk-disk]');
+        const diskUsed        = q<HTMLDivElement>('[data-tk-disk-used]');
+        const diskJobs        = q<HTMLDivElement>('[data-tk-disk-jobs]');
+        const diskText        = q('[data-tk-disk-text]');
+        const diskPurge       = q<HTMLButtonElement>('[data-tk-disk-purge]');
+        const muteBtn         = q<HTMLButtonElement>('[data-tk-mute]');
         const startBtn        = q<HTMLButtonElement>('[data-tk-start]');
         const abortBtn        = q<HTMLButtonElement>('[data-tk-abort]');
         const cancelBtn       = q<HTMLButtonElement>('[data-tk-cancel]');
@@ -900,6 +918,59 @@ class TrainPopup extends Container {
                 } catch { /* ignore */ }
             }
         };
+        const requestNotifyPermission = () => {
+            try {
+                if ('Notification' in window && Notification.permission === 'default') {
+                    void Notification.requestPermission();
+                }
+            } catch { /* notifications unavailable */ }
+        };
+
+        // ── Completion chime + mute ─────────────────────────────────
+        let muted = false;
+        try { muted = localStorage.getItem('ocs-muted') === '1'; } catch { /* no storage */ }
+        let audioCtx: AudioContext | null = null;
+        const unlockAudio = () => {
+            try {
+                const AC = window.AudioContext || (window as any).webkitAudioContext;
+                if (AC && !audioCtx) audioCtx = new AC();
+                void audioCtx?.resume();
+            } catch { /* audio unavailable */ }
+        };
+        const playChime = (ok: boolean) => {
+            if (muted) return;
+            try {
+                unlockAudio();
+                const ctx = audioCtx;
+                if (!ctx) return;
+                const now = ctx.currentTime;
+                const notes = ok ? [523.25, 659.25, 783.99] : [311.13, 233.08];
+                notes.forEach((f, i) => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.value = f;
+                    const t0 = now + i * 0.12;
+                    gain.gain.setValueAtTime(0, t0);
+                    gain.gain.linearRampToValueAtTime(0.16, t0 + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.0008, t0 + 0.34);
+                    osc.connect(gain); gain.connect(ctx.destination);
+                    osc.start(t0); osc.stop(t0 + 0.36);
+                });
+            } catch { /* audio unavailable */ }
+        };
+        const syncMute = () => {
+            muteBtn.textContent = muted ? '\u{1F507}' : '\u{1F50A}';
+            muteBtn.classList.toggle('is-muted', muted);
+            muteBtn.title = muted ? 'Completion sound muted' : 'Mute completion sound';
+        };
+        syncMute();
+        muteBtn.addEventListener('click', () => {
+            muted = !muted;
+            try { localStorage.setItem('ocs-muted', muted ? '1' : '0'); } catch { /* no storage */ }
+            syncMute();
+            if (!muted) playChime(true);
+        });
 
         // ── Log panel ───────────────────────────────────────────────
         const appendLog = (tag: string, message: string, tone: 'system' | 'ok' | 'warn' | 'err' = 'system') => {
@@ -1212,6 +1283,9 @@ class TrainPopup extends Container {
 
         const renderRecent = (jobs: any[]) => {
             const usable = jobs.filter(j => j.has_ply);
+            const deadCount = jobs.filter(j => j.stage === 'failed' || j.stage === 'cancelled').length;
+            diskPurge.toggleAttribute('hidden', deadCount === 0);
+            if (deadCount) diskPurge.textContent = `× purge ${deadCount} failed`;
             while (recentList.firstChild) recentList.removeChild(recentList.firstChild);
             if (usable.length === 0) {
                 recentBox.setAttribute('hidden', '');
@@ -1290,6 +1364,44 @@ class TrainPopup extends Container {
             });
         };
 
+        // ── Disk gauge + purge ──────────────────────────────────────
+        const fetchDisk = async () => {
+            try {
+                const r = await fetch(`${getBackendUrl()}/disk`);
+                if (!r.ok) { diskBox.setAttribute('hidden', ''); return; }
+                const d = await r.json();
+                if (!d || !d.total_gb) { diskBox.setAttribute('hidden', ''); return; }
+                const usedPct = Math.max(0, Math.min(100, (d.used_gb / d.total_gb) * 100));
+                const jobsPct = Math.max(0, Math.min(100, ((d.jobs_gb || 0) / d.total_gb) * 100));
+                diskUsed.style.width = `${usedPct.toFixed(1)}%`;
+                diskJobs.style.width = `${jobsPct.toFixed(1)}%`;
+                const parts: string[] = [];
+                if (d.jobs_gb != null) parts.push(`jobs ${d.jobs_gb} GB`);
+                if (d.jobs_count) parts.push(`${d.jobs_count} job${d.jobs_count > 1 ? 's' : ''}`);
+                if (d.free_gb != null) parts.push(`${d.free_gb} GB free`);
+                diskText.textContent = parts.join(' · ') || '—';
+                diskBox.removeAttribute('hidden');
+            } catch {
+                diskBox.setAttribute('hidden', '');
+            }
+        };
+        const purgeFailed = async () => {
+            try {
+                const r = await fetch(`${getBackendUrl()}/jobs`);
+                if (!r.ok) return;
+                const jobs = await r.json();
+                const dead = jobs.filter((j: any) => j.stage === 'failed' || j.stage === 'cancelled');
+                if (!dead.length) return;
+                diskPurge.disabled = true;
+                for (const j of dead) {
+                    try { await fetch(`${getBackendUrl()}/jobs/${j.id}`, { method: 'DELETE' }); } catch { /* */ }
+                }
+                diskPurge.disabled = false;
+                await refreshRecent();
+            } catch { /* offline */ }
+        };
+        diskPurge.addEventListener('click', () => { void purgeFailed(); });
+
         const refreshRecent = async () => {
             try {
                 const r = await fetch(`${getBackendUrl()}/jobs`);
@@ -1299,6 +1411,7 @@ class TrainPopup extends Container {
                 recentBox.setAttribute('hidden', '');
                 recentRule.setAttribute('hidden', '');
             }
+            void fetchDisk();
         };
 
         // ── Backend I/O ─────────────────────────────────────────────
@@ -1339,7 +1452,7 @@ class TrainPopup extends Container {
             viewerLink.removeAttribute('href');
         };
 
-        const subscribe = (jobId: string) => new Promise<void>((resolve, reject) => {
+        const subscribe = (jobId: string) => new Promise<any>((resolve, reject) => {
             const src = new EventSource(`${getBackendUrl()}/jobs/${jobId}/stream`);
             let lastStage = '';
             let reportShown = false;
@@ -1380,7 +1493,7 @@ class TrainPopup extends Container {
                     hideViewer();
                 }
                 if (s.stage === 'done') {
-                    src.close(); resolve();
+                    src.close(); resolve(s);
                 }
                 if (s.stage === 'failed') {
                     src.close(); reject(new Error(s.error || s.message || 'failed'));
@@ -1508,8 +1621,8 @@ class TrainPopup extends Container {
         const ENHANCE_HINTS = {
             none:  'isolate subject · cull floaters · fix exposure',
             rembg: 'subject isolated — background masked during training',
-            refine: 'scale-reg + bilateral grid + floater removal',
-            both:  'clean isolated subject — best for object captures',
+            refine: 'scale-reg · floater cull · auto-crop + recenter',
+            both:  'clean, cropped, centered subject — best for objects',
         };
         const syncEnhanceHint = () => {
             const key = removeBackground && refineGeometry ? 'both'
@@ -1641,6 +1754,8 @@ class TrainPopup extends Container {
                     // Resume a previous failure when no new files are picked.
                     const resumeId = pickedFiles.length === 0 ? lastFailedJobId : null;
                     if (pickedFiles.length === 0 && !resumeId) return;
+                    requestNotifyPermission();   // prompt while we have a user gesture
+                    unlockAudio();               // unlock the completion chime
                     setState('queued');
                     startBtn.disabled = true;
                     setStartLabel('⟳ TRAINING…');
@@ -1670,12 +1785,16 @@ class TrainPopup extends Container {
                         setState('running');
                         statusEl.textContent = 'TRAINING';
                         startRawLogPoll(id);
-                        await subscribe(id);
+                        const finalStatus = await subscribe(id);
 
                         // Done
                         setState('done');
                         statusEl.textContent = 'DONE';
-                        notify('OneClick SPLAT — training complete', `${id.slice(0, 8)} is ready to load`);
+                        playChime(true);
+                        notify('OneClick SPLAT — training complete', `${(finalStatus?.name || id.slice(0, 8))} is ready to load`);
+                        if (finalStatus?.has_turntable) {
+                            try { openTurntable(id, finalStatus.name || id.slice(0, 8)); } catch { /* */ }
+                        }
                         showMetrics(id).catch(() => undefined);
                         appendLog('LOAD', 'loading PLY into editor…', 'ok');
                         const file = await fetchPlyAsFile(id);
@@ -1733,6 +1852,7 @@ class TrainPopup extends Container {
                             }
                             setStartLabel(lastFailedJobId ? '↻ RESUME' : 'RETRY');
                             statusEl.textContent = 'FAILED';
+                            playChime(false);
                             notify('OneClick SPLAT — training failed', hint ? hint.title : (raw || 'See the console for details'));
                         }
                         startBtn.disabled = false;

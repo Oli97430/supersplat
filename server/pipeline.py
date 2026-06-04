@@ -561,6 +561,107 @@ def remove_floaters(in_path: Path, out_path: Path,
         return {"error": str(e)}
 
 
+def crop_and_center(in_path: Path, out_path: Path,
+                    lo_pct: float = 1.0, hi_pct: float = 99.0,
+                    margin: float = 0.08, max_drop_frac: float = 0.30) -> dict:
+    """Auto-crop stray background gaussians to a robust bounding box, then
+    recenter the model on its (post-crop) median so it loads centred.
+
+    Safe: only drops PLY rows and translates xyz — spherical-harmonic colour is
+    rotation-dependent, not translation-dependent, so it stays valid. Capped at
+    max_drop_frac; if cropping would eat more than that, we keep every gaussian
+    and only recenter.
+
+    Returns a stats dict, or {'error': ...} leaving out_path as a plain copy."""
+    if not in_path.exists():
+        return {"error": "input missing"}
+    try:
+        import numpy as np  # type: ignore
+    except ImportError:
+        return {"error": "numpy not available"}
+    try:
+        with in_path.open("rb") as f:
+            header = bytearray()
+            while not header.endswith(b"end_header\n") and len(header) < 65536:
+                ch = f.read(1)
+                if not ch:
+                    return {"error": "header truncated"}
+                header += ch
+            data = f.read()
+        text = header.decode("ascii", errors="ignore")
+        m_count = re.search(r"element vertex (\d+)", text)
+        if not m_count:
+            return {"error": "no vertex count"}
+        count = int(m_count.group(1))
+        properties = re.findall(r"property float ([a-zA-Z_0-9]+)", text)
+        if not all(c in properties for c in ("x", "y", "z")):
+            return {"error": "no xyz fields"}
+        nfloats = len(properties)
+        expected = count * nfloats * 4
+        if len(data) < expected:
+            return {"error": "data truncated"}
+        # .copy() — frombuffer is read-only; we translate xyz in place below.
+        arr = np.frombuffer(data[:expected], dtype=np.float32).reshape(count, nfloats).copy()
+        xi, yi, zi = (properties.index(c) for c in ("x", "y", "z"))
+        idx = [xi, yi, zi]
+        pts = arr[:, idx].astype(np.float64)
+
+        # Stage 1: drop gross outliers (> 8 robust-sigma) via per-axis MAD so a
+        # handful of far floaters can't bias the percentile box below.
+        med = np.median(pts, axis=0)
+        sigma = np.maximum(np.median(np.abs(pts - med), axis=0) * 1.4826, 1e-6)
+        gross_in = np.all(np.abs(pts - med) <= 8.0 * sigma, axis=1)
+        ref = pts[gross_in] if int(gross_in.sum()) >= 64 else pts
+
+        # Stage 2: tight robust per-axis box from the cleaned reference set,
+        # expanded by a margin so we never clip into the subject.
+        lo = np.percentile(ref, lo_pct, axis=0)
+        hi = np.percentile(ref, hi_pct, axis=0)
+        span = np.maximum(hi - lo, 1e-6)
+        lo_m = lo - span * margin
+        hi_m = hi + span * margin
+        inside = np.all((pts >= lo_m) & (pts <= hi_m), axis=1)
+        new_count = int(inside.sum())
+
+        cropped = True
+        if count == 0 or new_count < max(64, int(count * (1.0 - max_drop_frac))):
+            # Cropping would eat too much — keep everything, only recenter.
+            cropped = False
+            kept = arr
+            new_count = count
+        else:
+            kept = arr[inside]
+        dropped = count - new_count
+
+        # Recenter on the robust median of the kept gaussians.
+        center = np.median(kept[:, idx], axis=0).astype(np.float32)
+        kept[:, xi] -= center[0]
+        kept[:, yi] -= center[1]
+        kept[:, zi] -= center[2]
+
+        new_header = text.replace(f"element vertex {count}",
+                                  f"element vertex {new_count}", 1)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("wb") as f:
+            f.write(new_header.encode("ascii"))
+            f.write(np.ascontiguousarray(kept).tobytes())
+
+        return {
+            "cropped": cropped,
+            "original_count": count,
+            "kept_count": new_count,
+            "dropped_count": dropped,
+            "dropped_pct": round(dropped / count * 100, 1) if count else 0,
+            "center": [round(float(c), 3) for c in center],
+        }
+    except Exception as e:
+        try:
+            shutil.copy(in_path, out_path)
+        except Exception:
+            pass
+        return {"error": str(e)}
+
+
 def find_latest_checkpoint(outputs_dir: Path) -> tuple[Optional[Path], int]:
     """Locate the highest-step checkpoint of a previous splatfacto run.
 
@@ -1381,6 +1482,21 @@ def stage_export(cfg: JobConfig, cb: ProgressCb):
                  f"✓ Removed {fstats['dropped_count']:,} floater gaussians "
                  f"({fstats['dropped_pct']}%)")
             floater_backup.unlink(missing_ok=True)
+
+        # Auto-crop background + recenter (drop rows + translate xyz — SH-safe).
+        _emit(cb, cfg, "exporting", 0.96, "Cropping background + centering")
+        crop_backup = cfg.ply_path.with_suffix(".precrop.ply")
+        shutil.move(cfg.ply_path, crop_backup)
+        cstats = crop_and_center(crop_backup, cfg.ply_path)
+        if "error" in cstats:
+            shutil.move(crop_backup, cfg.ply_path)
+            _log(cfg, f"Crop/center skipped: {cstats['error']}")
+        else:
+            _log(cfg, (f"✓ Cropped {cstats['dropped_count']:,} background gaussians "
+                       f"({cstats['dropped_pct']}%) + recentered"
+                       if cstats.get('cropped')
+                       else "✓ Recentered (crop skipped — would cut too much)"))
+            crop_backup.unlink(missing_ok=True)
 
     _emit(cb, cfg, "exporting", 1.0, f"PLY ready: {cfg.ply_path.name}")
 

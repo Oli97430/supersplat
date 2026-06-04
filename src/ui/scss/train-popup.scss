@@ -1443,6 +1443,86 @@ $lime:       #b5f200;
 
 .tk-foot-buttons { display: flex; gap: 10px; align-items: center; }
 
+.tk-mute {
+    background: none;
+    border: none;
+    padding: 0 2px;
+    margin-left: 2px;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.85;
+    transition: opacity 0.15s, filter 0.15s;
+
+    &:hover { opacity: 1; }
+    &.is-muted { opacity: 0.5; filter: grayscale(1); }
+}
+
+// ── Disk gauge ────────────────────────────────────────────────────────────────
+.tk-disk {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid $line;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.tk-disk-bar {
+    position: relative;
+    height: 8px;
+    background: $bg-rail;
+    border: 1px solid $line-bold;
+    overflow: hidden;
+}
+
+.tk-disk-used {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0;
+    background: $ink-ghost;
+}
+
+.tk-disk-jobs {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0;
+    background: $cyan;
+    box-shadow: 0 0 8px rgba(95, 211, 233, 0.4);
+}
+
+.tk-disk-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 7px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+}
+
+.tk-disk-text {
+    font-family: 'JetBrains Mono', monospace;
+    color: $ink-dim;
+}
+
+.tk-disk-purge {
+    margin-left: auto;
+    background: none;
+    border: 1px solid $line-bold;
+    color: $ink-faint;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+
+    &:hover { color: $rust; border-color: rgba(231, 111, 81, 0.4); background: rgba(231, 111, 81, 0.06); }
+    &:disabled { opacity: 0.5; cursor: wait; }
+}
+
 // ── Buttons ─────────────────────────────────────────────────────────────────────
 .tk-btn {
     font-family: 'JetBrains Mono', monospace;

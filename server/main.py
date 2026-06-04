@@ -471,10 +471,40 @@ async def presets():
     return CAPTURE_PRESETS
 
 
+def _dir_size_bytes(path: Path) -> int:
+    total = 0
+    try:
+        for p in path.rglob("*"):
+            try:
+                if p.is_file():
+                    total += p.stat().st_size
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return total
+
+
 @app.get("/disk", dependencies=[Depends(require_auth)])
 async def disk():
     ok, free_gb = check_disk_space(JOBS_ROOT, MIN_DISK_GB)
-    return {"ok": ok, "free_gb": free_gb, "required_gb": MIN_DISK_GB}
+    total_gb = used_gb = jobs_gb = None
+    jobs_count = 0
+    try:
+        du = shutil.disk_usage(JOBS_ROOT)
+        total_gb = round(du.total / 1024 ** 3, 1)
+        used_gb = round((du.total - du.free) / 1024 ** 3, 1)
+    except Exception:
+        pass
+    try:
+        if JOBS_ROOT.exists():
+            jobs_count = sum(1 for d in JOBS_ROOT.iterdir() if d.is_dir())
+            jobs_gb = round(_dir_size_bytes(JOBS_ROOT) / 1024 ** 3, 2)
+    except Exception:
+        pass
+    return {"ok": ok, "free_gb": free_gb, "required_gb": MIN_DISK_GB,
+            "total_gb": total_gb, "used_gb": used_gb,
+            "jobs_gb": jobs_gb, "jobs_count": jobs_count}
 
 
 @app.get("/")
