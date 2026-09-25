@@ -234,8 +234,43 @@ Log "[END]   pip upgrade  (exit $rc)"
 if ($rc -ne 0) { throw "pip upgrade failed (exit $rc)" }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. PyTorch CUDA 11.8
+# 3. PyTorch -- stack picked from the GPU
 # ─────────────────────────────────────────────────────────────────────────────
+# RTX 50 (Blackwell, compute capability 12.x) is unsupported by torch 2.1.2
+# ("no kernel image is available"): it needs torch >= 2.7 built for CUDA 12.8
+# and a gsplat .pyd with sm_120 code. Every older GPU keeps the proven
+# 2.1.2+cu118 stack.
+$GpuCC = 0.0
+$GpuDriver = 0.0
+try {
+    $smi = & nvidia-smi --query-gpu=compute_cap,driver_version --format=csv,noheader 2>$null | Select-Object -First 1
+    if ($smi) {
+        $parts = $smi -split ','
+        $GpuCC     = [double]$parts[0].Trim()
+        $GpuDriver = [double](($parts[1].Trim() -split '\.')[0])
+    }
+} catch { Log "  WARN: nvidia-smi probe failed: $($_.ToString())" }
+
+# OCS_TORCH_STACK=cu128|cu118 overrides detection (testing, odd drivers).
+$forced = "$env:OCS_TORCH_STACK".Trim().ToLower()
+if ($forced -eq 'cu128' -or ($forced -ne 'cu118' -and $GpuCC -ge 12.0)) {
+    $TorchPkgs    = @('torch==2.7.1+cu128', 'torchvision==0.22.1+cu128')
+    $TorchIndex   = 'https://download.pytorch.org/whl/cu128'
+    $TorchTag     = '+cu128'
+    $TorchLabel   = 'PyTorch 2.7.1 + CUDA 12.8 (RTX 50)'
+    $PrebuiltName = 'gsplat_cuda-py310-torch271-cu128-multiarch.pyd'
+    if ($GpuDriver -gt 0 -and $GpuDriver -lt 570) {
+        Log "  WARN: NVIDIA driver $GpuDriver is too old for CUDA 12.8 -- update to 570 or newer"
+    }
+} else {
+    $TorchPkgs    = @('torch==2.1.2+cu118', 'torchvision==0.16.2+cu118')
+    $TorchIndex   = 'https://download.pytorch.org/whl/cu118'
+    $TorchTag     = '+cu118'
+    $TorchLabel   = 'PyTorch 2.1.2 + CUDA 11.8'
+    $PrebuiltName = 'gsplat_cuda-py310-torch212-cu118-multiarch.pyd'
+}
+Log "GPU compute capability $GpuCC, driver $GpuDriver -> $TorchLabel"
+
 # IMPORTANT: do NOT use `& python -c "import torch" 2>$null` to probe -- when
 # the import fails, Python writes to stderr; PowerShell 5.1 wraps each stderr
 # line in a NativeCommandError record; with $ErrorActionPreference = "Stop"
@@ -251,13 +286,14 @@ if (Test-Path $TorchSitePath) {
 }
 Log "Torch probe -> $(if ($TorchInstalled) { $TorchInstalled } else { 'not found' })"
 
-if (-not $TorchInstalled) {
-    $rc = Invoke-Pip -Label "[STEP 3/6] Installing PyTorch 2.1.2 + CUDA 11.8  (~2.7 GB, 3-6 min)" -Args @(
-        'install', '--no-cache-dir',
-        'torch==2.1.2+cu118',
-        'torchvision==0.16.2+cu118',
-        '--index-url', 'https://download.pytorch.org/whl/cu118'
-    )
+if (-not $TorchInstalled -or $TorchInstalled -notlike "*$TorchTag") {
+    # Also runs when the venv holds the other stack (e.g. an RTX 50 laptop
+    # whose venv was built with cu118): pip swaps torch in place.
+    # numpy<2: nerfstudio 1.1.4 and its deps target the numpy 1.x ABI.
+    $rc = Invoke-Pip -Label "[STEP 3/6] Installing $TorchLabel  (~3 GB, 3-8 min)" -Args (@(
+        'install', '--no-cache-dir') + $TorchPkgs + @('numpy<2',
+        '--extra-index-url', $TorchIndex
+    ))
     if ($rc -ne 0) { throw "PyTorch install failed (exit $rc)" }
 } else {
     Log "PyTorch already installed: $TorchInstalled"
@@ -276,7 +312,12 @@ Log "nerfstudio probe -> $(if ($NSInstalled) { 'present' } else { 'not found' })
 
 if (-not $NSInstalled) {
     $rc = Invoke-Pip -Label "[STEP 4/6] Installing nerfstudio  (~2 GB, 8-15 min -- DO NOT close, more steps after this!)" -Args @(
-        'install', '--no-cache-dir', 'nerfstudio==1.1.4'
+        # Users have no C++ compiler: every dependency must come as a wheel.
+        # fpsample >= 1.0 ships no cp310 Windows wheel and fails to build
+        # ("CMAKE_CXX_COMPILER not set"); 0.3.3 has one and provides the
+        # bucket_fps_kdline_sampling nerfstudio uses. --prefer-binary makes
+        # pip pick an older wheel over a newer sdist for everything else.
+        'install', '--no-cache-dir', '--prefer-binary', 'nerfstudio==1.1.4', 'fpsample==0.3.3', 'numpy<2'
     )
     if ($rc -ne 0) { throw "nerfstudio install failed (exit $rc)" }
 } else {
@@ -293,7 +334,7 @@ $rc = Invoke-Pip -Label "[STEP 5/6] Installing FastAPI server deps + rembg  (~12
     'sse-starlette==2.1.3',
     'python-multipart==0.0.9',
     'pillow',
-    'numpy',
+    'numpy<2',
     # rembg powers the optional "remove background" feature. onnxruntime (CPU)
     # is pinned to a build that ships cp310 wheels.
     'rembg==2.0.59',
@@ -463,20 +504,33 @@ if ($basePyPrefix -and (Test-Path (Join-Path $basePyPrefix "libs\python310.lib")
 $gsplatPkgDir = Join-Path $Venv "Lib\site-packages\gsplat"
 if (Test-Path $gsplatPkgDir) {
     $prebuiltDest = Join-Path $gsplatPkgDir "_ocs_prebuilt.pyd"
+    # The .pyd is ABI-bound to one torch build. Record which one is in place
+    # so a stack switch (cu118 <-> cu128) replaces it.
+    $prebuiltMark = Join-Path $gsplatPkgDir "_ocs_prebuilt.txt"
+    $markName = if (Test-Path $prebuiltMark) { (Get-Content $prebuiltMark -Raw).Trim() } else { "" }
+    if ((Test-Path $prebuiltDest) -and $markName -ne $PrebuiltName -and
+        -not ($markName -eq "" -and $TorchTag -eq '+cu118')) {
+        # (no marker + cu118 = pre-2.27.39 install whose .pyd is already right)
+        Log "[POST] Prebuilt gsplat is for '$markName', need '$PrebuiltName' -- replacing"
+        Remove-Item -Force $prebuiltDest
+    }
     if (-not (Test-Path $prebuiltDest)) {
         # Prefer the bundled copy (shipped in the installer at {app}\prebuilt\).
         # Fall back to downloading from the GitHub release if the bundle isn't
         # there -- this lets devs run install-deps standalone too.
-        $bundled = Join-Path $AppDir "prebuilt\gsplat_cuda-py310-torch212-cu118-multiarch.pyd"
+        $bundled = Join-Path $AppDir "prebuilt\$PrebuiltName"
         if (Test-Path $bundled) {
-            Log "[POST] Copying bundled prebuilt gsplat_cuda.pyd (multi-arch Turing/Ampere/Ada)"
+            Log "[POST] Copying bundled prebuilt $PrebuiltName"
             Copy-Item $bundled $prebuiltDest -Force
+            Set-Content -Path $prebuiltMark -Value $PrebuiltName -Encoding ASCII
             Log "  prebuilt placed at $prebuiltDest"
         } else {
-            Log "[POST] Downloading prebuilt gsplat_cuda.pyd (multi-arch Turing/Ampere/Ada)"
-            $pyduUrl = "https://github.com/Oli97430/supersplat/releases/download/v2.27.22-train/gsplat_cuda-py310-torch212-cu118-multiarch.pyd"
+            Log "[POST] Downloading prebuilt $PrebuiltName"
+            $pyduTag = if ($TorchTag -eq '+cu128') { 'v2.27.39-train' } else { 'v2.27.22-train' }
+            $pyduUrl = "https://github.com/Oli97430/supersplat/releases/download/$pyduTag/$PrebuiltName"
             try {
                 Download-File $pyduUrl $prebuiltDest
+                Set-Content -Path $prebuiltMark -Value $PrebuiltName -Encoding ASCII
                 Log "  prebuilt placed at $prebuiltDest"
             } catch {
                 Log "  WARN: prebuilt download failed -- JIT compile will be used on first training. $($_.ToString())"

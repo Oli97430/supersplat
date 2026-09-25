@@ -7,6 +7,20 @@ suffix on releases that include training-pipeline changes.
 
 ---
 
+## v2.27.39-train
+
+### Added
+- **RTX 50 (Blackwell) support** — install-deps reads the GPU's compute capability and installs **torch 2.7.1 + CUDA 12.8** with a new prebuilt `gsplat_cuda` (sm_75/86/89/120 + PTX) on RTX 50 cards; older GPUs keep torch 2.1.2 + CUDA 11.8. An existing venv on the wrong stack is switched in place. `OCS_TORCH_STACK=cu128|cu118` forces a stack.
+- `installer/tools/build-gsplat-pyd.ps1` — reproducible build of the prebuilt gsplat extension.
+
+### Fixed
+- **Fresh installs failed on PCs without Visual Studio** ("Failed building wheel for fpsample", `CMAKE_CXX_COMPILER not set`): fpsample ≥ 1.0 has no Windows/Python 3.10 wheel. Pinned `fpsample==0.3.3` and `--prefer-binary`; verified with `PIP_ONLY_BINARY=:all:`.
+- `numpy<2` pinned (torch 2.7 otherwise pulls numpy 2, which nerfstudio 1.1.4 does not target).
+- torch ≥ 2.6 refused nerfstudio checkpoints (`weights_only`): `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1` set by the launcher.
+- **Launcher gave up after 20 s** on the first start after a reboot (cold torch import); now waits up to 120 s.
+- **Uninstall no longer deletes your trained jobs** — silent uninstall keeps them, interactive uninstall asks (default No). Backend is really stopped first, and no folders are left behind in Program Files.
+
+---
 ## v2.27.38-train
 
 ### Changed

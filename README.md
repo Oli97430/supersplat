@@ -74,14 +74,14 @@
 | Component | Minimum | Recommended |
 |---|---|---|
 | OS | Windows 10 (1809+) | Windows 11 |
-| GPU | NVIDIA Turing (RTX 20xx, 8 GB VRAM) | RTX 3090 / 4090 |
-| GPU driver | supports CUDA 11.8 | CUDA 12+ |
+| GPU | NVIDIA Turing (RTX 20xx, 8 GB VRAM) — RTX 30 / 40 / **50** supported | RTX 3090 / 4090 / 5090 |
+| GPU driver | supports CUDA 11.8 (RTX 50: driver 570+) | latest |
 | Python | 3.10 *(bundled in the installer — no system Python needed)* | — |
 | RAM | 16 GB | 32 GB |
 | Storage | 10 GB free | 50 GB free |
 | Tools | bundled — ffmpeg, COLMAP, gsplat .pyd | — |
 
-> The Windows installer ships a **pre-built `gsplat_cuda.pyd`** with native SASS for Turing (7.5) + Ampere (8.6) + Ada (8.9), plus PTX for newer cards. **No Visual Studio Build Tools or CUDA Toolkit required.** PyTorch + nerfstudio download themselves (~6 GB) on first run.
+> The Windows installer picks the PyTorch stack from your GPU: **torch 2.1.2 + CUDA 11.8** for RTX 20/30/40, **torch 2.7.1 + CUDA 12.8** for RTX 50 (Blackwell). Each ships with a **pre-built `gsplat_cuda.pyd`** (native code for Turing, Ampere, Ada and Blackwell), so **no Visual Studio Build Tools or CUDA Toolkit are required**: every Python dependency installs from a pre-built wheel. PyTorch + nerfstudio download themselves (~6 GB) on first run.
 
 ### Backend setup
 

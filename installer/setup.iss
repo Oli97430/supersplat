@@ -82,6 +82,9 @@ Source: "assets\README.txt"; DestDir: "{app}";        Flags: ignoreversion isrea
 ; install-deps copies this into the venv post-install so users without
 ; MSVC/CUDA never have to JIT compile gsplat.
 Source: "dist\gsplat_cuda-py310-torch212-cu118-multiarch.pyd"; DestDir: "{app}\prebuilt"; Flags: ignoreversion
+; RTX 50 (Blackwell) stack: torch 2.7.1+cu128, sm_75/86/89/120 + PTX.
+; Built with tools\build-gsplat-pyd.ps1 (CUDA 12.9 + VS 2022 Build Tools).
+Source: "dist\gsplat_cuda-py310-torch271-cu128-multiarch.pyd"; DestDir: "{app}\prebuilt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\OneClick SPLAT";       Filename: "{app}\OneClickSPLAT.cmd"; IconFilename: "{app}\assets\icon.ico"; WorkingDir: "{app}"

@@ -232,6 +232,11 @@ $env:U2NET_HOME = Join-Path $AppDir "models\rembg"
 # retries PermissionError ~forever -> `import rembg` hangs the backend.
 $env:NUMBA_CACHE_DIR = Join-Path $UserData "numba_cache"
 
+# ── torch >= 2.6 (RTX 50 stack) defaults torch.load to weights_only=True,
+# which refuses nerfstudio 1.1.4 checkpoints in ns-export / ns-render.
+# These are our own local files, so restore the old default. No-op on 2.1.
+$env:TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD = "1"
+
 # ── Stop any prior backend from THIS install only ────────────────────────
 Get-Process python -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -eq $VenvPy } |
@@ -281,7 +286,9 @@ if (-not $backend) {
 Write-Host "      Waiting for backend to come up..."
 $ready = $false
 $resp  = $null
-for ($i = 0; $i -lt 40; $i++) {
+# 120s: right after a PC boot, importing torch/CUDA from a cold disk cache
+# (plus Defender scanning the venv) takes well over 20s; a warm start ~10s.
+for ($i = 0; $i -lt 240; $i++) {
     Start-Sleep -Milliseconds 500
     # Verify our spawned process is still alive before probing
     if (-not (Get-Process -Id $backend.Id -ErrorAction SilentlyContinue)) {
@@ -300,7 +307,7 @@ for ($i = 0; $i -lt 40; $i++) {
     } catch { }
 }
 if (-not $ready) {
-    Write-Host "      Backend failed to respond within 20s. Check $BackendLog" -ForegroundColor Red
+    Write-Host "      Backend failed to respond within 120s. Check $BackendLog" -ForegroundColor Red
     Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
     Read-Host "Press Enter to exit"
     exit 1
