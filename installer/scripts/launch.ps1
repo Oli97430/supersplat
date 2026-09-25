@@ -46,6 +46,15 @@ $ServeScript  = Join-Path $AppDir "scripts\serve-frontend.ps1"
 # via PowerShell's NativeCommandError trap.
 function Test-VenvHealthy {
     param([string]$VenvRoot)
+    # The venv is only a shell around its base interpreter (pyvenv.cfg home).
+    # Venvs from <= 2.27.37 used a system Python; if that was uninstalled the
+    # venv is dead. install-deps repoints it at the bundled {app}\python.
+    $cfgPath = Join-Path $VenvRoot "pyvenv.cfg"
+    if (-not (Test-Path $cfgPath)) { return $false }
+    $homeLine = Get-Content $cfgPath | Where-Object { $_ -match '^\s*home\s*=' } | Select-Object -First 1
+    if (-not $homeLine) { return $false }
+    $pyHome = ($homeLine -split '=', 2)[1].Trim()
+    if (-not (Test-Path (Join-Path $pyHome "python.exe"))) { return $false }
     $sp = Join-Path $VenvRoot "Lib\site-packages"
     foreach ($mod in @("uvicorn", "fastapi", "torch", "nerfstudio")) {
         if (-not (Test-Path (Join-Path $sp "$mod\__init__.py"))) {
@@ -73,7 +82,7 @@ if (-not $venvOk) {
     Write-Host "  I can run the dependency installer for you now."  -ForegroundColor Cyan
     Write-Host "  It will:"
     Write-Host "    - Open an Administrator PowerShell window (UAC prompt)"
-    Write-Host "    - Install Python 3.10 silently if missing"
+    Write-Host "    - Build the venv on the bundled Python 3.10"
     Write-Host "    - Download PyTorch + nerfstudio + COLMAP + ffmpeg"
     Write-Host "    - ~6 GB total, 10-15 min depending on bandwidth"
     Write-Host ""
@@ -216,6 +225,12 @@ $env:OCS_JOBS_DIR = $JobsDir
 # Point rembg at the model the installer pre-downloaded so the backend
 # doesn't try to re-fetch it into the user's home on first use.
 $env:U2NET_HOME = Join-Path $AppDir "models\rembg"
+
+# ── numba JIT cache (pymatting, pulled in by rembg) ──────────────────────
+# pymatting uses @njit(cache=True), which writes next to its sources in
+# Program Files. A non-admin user can't, and on Windows tempfile.mkstemp
+# retries PermissionError ~forever -> `import rembg` hangs the backend.
+$env:NUMBA_CACHE_DIR = Join-Path $UserData "numba_cache"
 
 # ── Stop any prior backend from THIS install only ────────────────────────
 Get-Process python -ErrorAction SilentlyContinue |

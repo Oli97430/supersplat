@@ -20,7 +20,8 @@ That script:
 
 1. Builds the frontend with `npm run build` (produces `dist/`)
 2. Locates Inno Setup compiler (ISCC.exe)
-3. Compiles `setup.iss` → `dist/OneClickSPLAT-Setup-2.27.3.exe`
+3. Downloads the Python 3.10.11 NuGet package into `installer\python\` (`scripts\fetch-python.ps1`, SHA-256 checked)
+4. Compiles `setup.iss` → `dist/OneClickSPLAT-Setup-2.27.3.exe`
 
 The resulting `.exe` is ~30-50 MB. **It does not bundle ML deps** —
 those download on first run (PyTorch + nerfstudio + COLMAP + ffmpeg ≈ 6 GB).
@@ -30,7 +31,7 @@ those download on first run (PyTorch + nerfstudio + COLMAP + ffmpeg ≈ 6 GB).
 | Step | Action |
 |---|---|
 | 1 | Detects NVIDIA GPU (warns if absent) |
-| 2 | Installs Python 3.10 silently if missing |
+| 2 | Installs its bundled private Python 3.10.11 into `{app}\python` (no system Python used) |
 | 3 | Creates a `venv` under `Program Files\OneClick SPLAT` |
 | 4 | Downloads PyTorch 2.1.2 + CUDA 11.8 |
 | 5 | Downloads nerfstudio 1.1.4 |

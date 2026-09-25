@@ -39,9 +39,18 @@ if not defined ISCC (
 )
 echo       Found: %ISCC%
 
-:: Step 3 — Compile installer
+:: Step 3 — Fetch the private Python runtime bundled into {app}\python
 echo.
-echo [3/3] Compiling installer...
+echo [3/4] Fetching bundled Python 3.10.11...
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\fetch-python.ps1 -Dest "%~dp0python"
+if errorlevel 1 (
+    echo ERROR: bundled Python fetch failed
+    exit /b 1
+)
+
+:: Step 4 — Compile installer
+echo.
+echo [4/4] Compiling installer...
 "%ISCC%" setup.iss
 if errorlevel 1 (
     echo ERROR: Inno Setup compilation failed

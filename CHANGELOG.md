@@ -7,6 +7,17 @@ suffix on releases that include training-pipeline changes.
 
 ---
 
+## v2.27.38-train
+
+### Changed
+- **Python 3.10 bundled in the installer** — a private CPython 3.10.11 (python.org NuGet build) is installed to `{app}\python` and the venv is built on it. No system Python is ever installed or used. Upgrades from ≤ 2.27.37 repoint the existing venv onto the bundled runtime without re-downloading the ~6 GB of ML packages.
+
+### Fixed
+- **Background removal could hang forever** for non-admin users: pymatting's numba cache tried to write into Program Files (Windows `tempfile` retries the permission error endlessly). `NUMBA_CACHE_DIR` now points to `%LOCALAPPDATA%\OneClickSPLAT\numba_cache`.
+- **A locked `install.log` aborted the dependency install** (antivirus / editor holding the file) while setup still reported success. Log writes now retry and never abort the install.
+
+---
+
 ## [Unreleased] — v2.27.3-train
 
 ### Added

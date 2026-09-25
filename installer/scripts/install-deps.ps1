@@ -33,8 +33,14 @@ function Log {
     param([string]$Msg, [string]$Level = "INFO")
     $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     $line  = "[$stamp] [$Level] $Msg"
-    Add-Content -Path $LogPath -Value $line -Encoding UTF8
     Write-Host $line
+    # A locked log (AV scanner, editor, tail) must never abort the install:
+    # with $ErrorActionPreference=Stop a failed Add-Content would throw, and
+    # the catch block's own Log would throw again, skipping the FATAL banner.
+    for ($i = 0; $i -lt 5; $i++) {
+        try { Add-Content -Path $LogPath -Value $line -Encoding UTF8 -ErrorAction Stop; break }
+        catch { Start-Sleep -Milliseconds 200 }
+    }
 }
 
 function Download-File {
@@ -73,84 +79,22 @@ Write-Host ""
 try {
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STEP 1/6 -- Python 3.10
+# STEP 1/6 -- Python 3.10 (bundled private runtime)
 # ─────────────────────────────────────────────────────────────────────────────
-Write-Host "[STEP 1/6] Verifying Python 3.10" -ForegroundColor Cyan
-$PythonExe = Get-Command python -ErrorAction SilentlyContinue
-$Python310 = $null
-
-if ($PythonExe) {
-    $ver = (& $PythonExe.Source --version 2>&1).ToString()
-    Log "Found system Python: $ver"
-    if ($ver -match "3\.10\.") { $Python310 = $PythonExe.Source }
+# The installer ships CPython 3.10.11 in {app}\python (python.org NuGet build,
+# see fetch-python.ps1). We never use or install a system Python: the venv
+# must not depend on anything outside the install dir.
+Write-Host "[STEP 1/6] Verifying bundled Python 3.10" -ForegroundColor Cyan
+$PyHome    = Join-Path $AppDir "python"
+$Python310 = Join-Path $PyHome "python.exe"
+if (-not (Test-Path $Python310)) {
+    # Standalone dev run (install-deps without the Inno bundle): fetch it.
+    Log "Bundled Python missing at $Python310 -- downloading"
+    & (Join-Path $PSScriptRoot "fetch-python.ps1") -Dest $PyHome
 }
-
-if (-not $Python310) {
-    # Probe known Python 3.10 install locations before downloading anything.
-    $candidates = @(
-        "C:\Program Files\Python310\python.exe",
-        "C:\Python310\python.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
-        "$env:ProgramW6432\Python310\python.exe"
-    )
-    foreach ($c in $candidates) {
-        if (Test-Path $c) {
-            $verCheck = (& $c --version 2>&1).ToString()
-            if ($verCheck -match "3\.10\.") {
-                $Python310 = $c
-                Log "Found existing Python 3.10 at $Python310 ($verCheck)"
-                break
-            }
-        }
-    }
-}
-
-if (-not $Python310) {
-    Log "Python 3.10 not found -- downloading installer"
-    $PyInstaller = Join-Path $env:TEMP "python-3.10.11-amd64.exe"
-    Download-File "https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe" $PyInstaller
-
-    # Use PER-USER install (no AllUsers) to avoid conflicts with any existing
-    # Python (e.g. 3.12 already on the system, registry collisions, AppX).
-    # PER-USER installs to %LOCALAPPDATA%\Programs\Python\Python310 and is more
-    # forgiving than all-users when another Python build is present.
-    Log "Running Python 3.10 silent install (per-user)"
-    $pyLog = Join-Path $env:TEMP "python-3.10-install.log"
-    $proc = Start-Process -FilePath $PyInstaller -ArgumentList @(
-        "/quiet",
-        "/log", "`"$pyLog`"",
-        "InstallAllUsers=0",
-        "PrependPath=1",
-        "Include_test=0",
-        "Include_doc=0",
-        "Include_launcher=1",
-        "TargetDir=`"$env:LOCALAPPDATA\Programs\Python\Python310`""
-    ) -Wait -NoNewWindow -PassThru
-    $rc = if ($proc) { $proc.ExitCode } else { -1 }
-    Log "Python 3.10 installer exited with code $rc"
-    if (Test-Path $pyLog) {
-        Log "Python installer log (last 20 lines):"
-        Get-Content $pyLog -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Log "  $_" }
-    }
-
-    # Refresh PATH for this process
-    $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-
-    # Check both per-user and all-users locations
-    $found = @(
-        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
-        "C:\Program Files\Python310\python.exe",
-        "C:\Python310\python.exe"
-    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-    if ($found) {
-        $Python310 = $found
-        Log "Python 3.10 installed at $Python310"
-    } else {
-        throw "Python 3.10 install failed (exit $rc). See $pyLog for details. As a workaround, install Python 3.10 manually from https://www.python.org/downloads/release/python-31011/ then re-run this script."
-    }
-}
-Log "Using Python: $Python310"
+$pyVer = (& $Python310 -c "import platform; print(platform.python_version())" 2>&1).ToString().Trim()
+if ($pyVer -notmatch '^3\.10\.') { throw "Bundled Python at $Python310 is unusable (reported: $pyVer)" }
+Log "Using Python: $Python310 ($pyVer)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Create venv
@@ -205,6 +149,23 @@ if (-not $venvHealthy) {
     Log "Creating venv at $Venv"
     & $Python310 -m venv $Venv
     if ($LASTEXITCODE -ne 0) { throw "venv creation failed (exit $LASTEXITCODE)" }
+} else {
+    # Venvs from <= 2.27.37 point at a system Python (usually per-user
+    # %LOCALAPPDATA%\Programs\Python\Python310). Same 3.10 ABI, so repoint
+    # pyvenv.cfg at the bundled runtime instead of re-downloading ~6 GB.
+    $cfgPath = Join-Path $Venv "pyvenv.cfg"
+    $cfg     = Get-Content $cfgPath
+    $homeLine = $cfg | Where-Object { $_ -match '^\s*home\s*=' } | Select-Object -First 1
+    $curHome  = if ($homeLine) { ($homeLine -split '=', 2)[1].Trim() } else { "" }
+    if ($curHome.TrimEnd('\') -ne $PyHome.TrimEnd('\')) {
+        Log "Repointing venv from '$curHome' to bundled Python $PyHome"
+        $cfg = $cfg | ForEach-Object {
+            if ($_ -match '^\s*home\s*=')    { "home = $PyHome" }
+            elseif ($_ -match '^\s*version\s*=') { "version = $pyVer" }
+            else { $_ }
+        }
+        Set-Content -Path $cfgPath -Value $cfg -Encoding ASCII
+    }
 }
 $VenvPy  = Join-Path $Venv "Scripts\python.exe"
 $VenvPip = Join-Path $Venv "Scripts\pip.exe"
@@ -476,6 +437,11 @@ if ($basePyPrefix -and (Test-Path (Join-Path $basePyPrefix "libs\python310.lib")
             $item = Get-Item $jPath -EA SilentlyContinue
             if (-not ($item -and $item.LinkType -eq "Junction")) {
                 Remove-Item -Recurse -Force $jPath -EA SilentlyContinue
+            } elseif ("$($item.Target)".TrimEnd('\') -ne $basePyLibs.TrimEnd('\')) {
+                # Stale junction to a previous base Python: drop the link
+                # only (Directory.Delete is non-recursive, target untouched).
+                [IO.Directory]::Delete($jPath)
+                Log "  removed stale junction $jPath -> $($item.Target)"
             }
         }
         if (-not (Test-Path $jPath)) {

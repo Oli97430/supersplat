@@ -7,7 +7,7 @@
 ; ============================================================================
 
 #define MyAppName         "OneClick SPLAT"
-#define MyAppVersion      "2.27.37"
+#define MyAppVersion      "2.27.38"
 #define MyAppPublisher    "Oli97430"
 #define MyAppURL          "https://github.com/Oli97430/supersplat"
 #define MyAppExeName      "OneClickSPLAT.exe"
@@ -67,6 +67,12 @@ Source: "scripts\check-gpu.ps1";      DestDir: "{app}\scripts"; Flags: ignorever
 Source: "scripts\OneClickSPLAT.exe.cmd"; DestDir: "{app}"; DestName: "OneClickSPLAT.cmd"; Flags: ignoreversion
 Source: "scripts\update.ps1";        DestDir: "{app}\scripts"; Flags: ignoreversion
 
+; ── Private Python 3.10.11 runtime (python.org NuGet build, relocatable) ───
+; Fetched by build.bat via scripts\fetch-python.ps1. The venv is built on
+; this interpreter, so the install never depends on a system Python.
+Source: "python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "scripts\fetch-python.ps1";   DestDir: "{app}\scripts"; Flags: ignoreversion
+
 ; ── Assets ─────────────────────────────────────────────────────────────────
 Source: "assets\icon.ico";   DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "assets\README.txt"; DestDir: "{app}";        Flags: ignoreversion isreadme
@@ -97,7 +103,7 @@ Filename: "powershell.exe"; \
 ; "Finish" before the venv exists and the launcher would crash.
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install-deps.ps1"" -AppDir ""{app}"""; \
-    StatusMsg: "Installing Python, ML deps, COLMAP, ffmpeg (5-15 min, ~6 GB download)…"; \
+    StatusMsg: "Installing ML deps, COLMAP, ffmpeg (5-15 min, ~6 GB download)…"; \
     Tasks: downloadml; \
     Flags: waituntilterminated
 
@@ -115,6 +121,7 @@ Filename: "powershell.exe"; \
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\venv"
+Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\tools"
 Type: filesandordirs; Name: "{app}\jobs"
 Type: filesandordirs; Name: "{app}\logs"

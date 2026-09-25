@@ -76,7 +76,7 @@
 | OS | Windows 10 (1809+) | Windows 11 |
 | GPU | NVIDIA Turing (RTX 20xx, 8 GB VRAM) | RTX 3090 / 4090 |
 | GPU driver | supports CUDA 11.8 | CUDA 12+ |
-| Python | 3.10 *(installed automatically)* | 3.10 |
+| Python | 3.10 *(bundled in the installer — no system Python needed)* | — |
 | RAM | 16 GB | 32 GB |
 | Storage | 10 GB free | 50 GB free |
 | Tools | bundled — ffmpeg, COLMAP, gsplat .pyd | — |
@@ -134,8 +134,8 @@ GET    /gpu               Detected GPU info (name, VRAM, free VRAM)
 Grab `OneClickSPLAT-Setup-*.exe` from [Releases](https://github.com/Oli97430/supersplat/releases) and double-click. The installer:
 
 - Detects NVIDIA GPU
-- Installs Python 3.10 silently if absent
-- Downloads PyTorch + CUDA, nerfstudio, COLMAP, ffmpeg (≈ 6 GB on first run)
+- Ships its own private Python 3.10 in `Program Files\OneClick SPLAT\python` — never touches or needs a system Python (upgrading from ≤ 2.27.37 moves the existing venv onto it, no re-download)
+- Downloads PyTorch + CUDA, nerfstudio, COLMAP, ffmpeg (≈ 6 GB on first run, ~45 min on a typical connection)
 - Bundles backend + prebuilt frontend
 - Creates Start Menu / Desktop shortcuts
 - Optional auto-start at login
@@ -145,6 +145,14 @@ Build the installer yourself from [`installer/`](installer/) (Inno Setup 6 requi
 ```bat
 cd installer
 build.bat
+```
+
+`build.bat` builds the frontend, downloads the official Python 3.10.11 NuGet package (SHA-256 checked) into `installer\python\`, then compiles `setup.iss`.
+
+Silent install (IT deployment / testing):
+
+```bat
+OneClickSPLAT-Setup-2.27.38.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS="downloadml"
 ```
 
 ### Run the editor (no training)
@@ -260,6 +268,6 @@ Training pipeline powered by:
 
 <div align="center">
 
-*Built on [PlayCanvas](https://playcanvas.com) · v2.27.0 · MIT License*
+*Built on [PlayCanvas](https://playcanvas.com) · v2.27.38 · MIT License*
 
 </div>
