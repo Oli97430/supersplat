@@ -7,7 +7,7 @@
 ; ============================================================================
 
 #define MyAppName         "OneClick SPLAT"
-#define MyAppVersion      "2.27.38"
+#define MyAppVersion      "2.27.39"
 #define MyAppPublisher    "Oli97430"
 #define MyAppURL          "https://github.com/Oli97430/supersplat"
 #define MyAppExeName      "OneClickSPLAT.exe"
@@ -113,9 +113,10 @@ Filename: "{app}\OneClickSPLAT.cmd"; \
     Flags: postinstall nowait skipifsilent unchecked
 
 [UninstallRun]
-; Stop any running backend before uninstall
+; Stop the backend + frontend server before uninstall so no file stays locked.
+; (Get-Process has no CommandLine property on Windows PowerShell 5.1 -> CIM.)
 Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Get-Process python -EA SilentlyContinue | Where-Object CommandLine -match uvicorn | Stop-Process -Force"""; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -match 'uvicorn main:app|serve-frontend\.ps1|launch\.ps1' } | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -EA SilentlyContinue }"""; \
     Flags: runhidden; \
     RunOnceId: "StopBackend"
 
@@ -125,8 +126,17 @@ Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\tools"
 Type: filesandordirs; Name: "{app}\jobs"
 Type: filesandordirs; Name: "{app}\logs"
-; Per-user runtime data (logs, jobs cache, PIDs) — opt-in cleanup
-Type: filesandordirs; Name: "{localappdata}\OneClickSPLAT"
+; Created at runtime / by install-deps (rembg model, __pycache__, VERSION, stale scripts)
+Type: filesandordirs; Name: "{app}\models"
+Type: filesandordirs; Name: "{app}\server"
+Type: filesandordirs; Name: "{app}\scripts"
+Type: filesandordirs; Name: "{app}\prebuilt"
+; Per-user data (%LOCALAPPDATA%\OneClickSPLAT) is handled in CurUninstallStepChanged:
+; logs + caches always go, trained jobs are kept unless the user says otherwise.
+
+[CustomMessages]
+english.DeleteJobs=Also delete your %1 trained job(s) (splats, source videos, turntables)?%n%n%2%n%nChoose No to keep them for a future reinstall.
+french.DeleteJobs=Supprimer aussi vos %1 job(s) entraine(s) (splats, videos source, turntables) ?%n%n%2%n%nChoisissez Non pour les garder pour une future reinstallation.
 
 [Code]
 function InitializeSetup(): Boolean;
@@ -150,5 +160,47 @@ begin
     // Drop a VERSION file the backend reads so /jobs metadata reflects the
     // installed package version. Bumping MyAppVersion above is enough.
     SaveStringToFile(ExpandConstant('{app}\server\VERSION'), '{#MyAppVersion}-train', False);
+  end;
+end;
+
+function CountSubDirs(Dir: String): Integer;
+var
+  FindRec: TFindRec;
+begin
+  Result := 0;
+  if FindFirst(Dir + '\*', FindRec) then
+  try
+    repeat
+      if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
+         (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        Result := Result + 1;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DataDir, JobsDir: String;
+  N: Integer;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    DataDir := ExpandConstant('{localappdata}\OneClickSPLAT');
+    DelTree(DataDir + '\logs', True, True, True);
+    DelTree(DataDir + '\numba_cache', True, True, True);
+    DeleteFile(DataDir + '\pids.json');
+    // Jobs are the user's work (often tens of GB): never delete them
+    // silently. Silent uninstalls keep them; interactive ones ask, No default.
+    JobsDir := DataDir + '\jobs';
+    N := CountSubDirs(JobsDir);
+    if N = 0 then
+      DelTree(JobsDir, True, True, True)
+    else if not UninstallSilent then
+      if SuppressibleMsgBox(FmtMessage(CustomMessage('DeleteJobs'), [IntToStr(N), JobsDir]),
+           mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
+        DelTree(JobsDir, True, True, True);
+    RemoveDir(DataDir);  // only succeeds when nothing is left
   end;
 end;
